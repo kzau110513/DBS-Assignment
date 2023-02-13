@@ -5,6 +5,7 @@
 
 #include "rpc.h"
 #include "debug.h"
+#include <iostream>
 INIT_LOG
 
 #include <sys/stat.h>
@@ -146,8 +147,16 @@ int main(int argc, char* argv[]) {
 	}
 
 	// TODO: Hand over control to the RPC library by calling `rpcExecute`.
+	int execRet = rpcExecute();
 
 	// rpcExecute could fail so you may want to have debug-printing here, and
 	// then you should return.
+	if (execRet < 0) {
+#ifdef PRINT_ERR
+		std::cerr << "RPC Execution Error:" << execRet;
+#endif
+		ret = NOT_INIT;
+		return ret;
+	}
 	return ret;
 }

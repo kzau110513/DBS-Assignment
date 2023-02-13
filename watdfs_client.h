@@ -26,6 +26,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <iostream>
+
 #ifdef __cplusplus
 // This is for backward compatibility, but all your code *must* be in C++.
 extern "C" {

@@ -8,6 +8,7 @@
 INIT_LOG
 
 #include "rpc.h"
+#include <iostream>
 
 #define PRINT_ERR 1
 

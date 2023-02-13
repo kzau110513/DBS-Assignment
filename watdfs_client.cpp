@@ -23,7 +23,7 @@ void* watdfs_cli_init(struct fuse_conn_info* conn, const char* path_to_cache,
 	// `rpcClientInit` may fail, for example, if an incorrect port was exported.
 	if (initRet < 0) {
 #ifdef PRINT_ERR
-		std::cerr << "Client Initialization Error:" << initRet;
+		std::cerr << "Client Initialization Error: " << initRet << << std::endl;
 #endif
 	}
 

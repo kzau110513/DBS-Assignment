@@ -79,7 +79,47 @@ int watdfs_getattr(int* argTypes, void** args) {
 	// Clean up the full path, it was allocated on the heap.
 	free(full_path);
 
-	//DLOG("Returning code: %d", *ret);
+	DLOG("Returning code of getattr: %d", *ret);
+	// The RPC call succeeded, so return 0.
+	return 0;
+}
+
+// The server implementation of mknod.
+int watdfs_mknod(int* argTypes, void** args) {
+	// Get the arguments.
+	// The first argument is the path relative to the mountpoint.
+	char* short_path = (char*)args[0];
+	// The second argument: mode
+	int* mode = (int*)args[1];
+	// The third argument: dev
+	long* dev = (long*)args[2];
+	// The fourth argument is the return code, which should be set be 0 or -errno.
+	int* ret = (int*)args[3];
+
+	// Get the local file name, so we call our helper function which appends
+	// the server_persist_dir to the given path.
+	char* full_path = get_full_path(short_path);
+
+	// Initially we set set the return code to be 0.
+	*ret = 0;
+
+	// Let sys_ret be the return code from the stat system call.
+	int sys_ret = 0;
+
+	// TODO: Make the stat system call, which is the corresponding system call needed
+	// to support getattr. You should use the statbuf as an argument to the stat system call.
+	sys_ret = mknod(full_path, *mode, *dev);
+
+	if (sys_ret < 0) {
+		// If there is an error on the system call, then the return code should
+		// be -errno.
+		*ret = -errno;
+	}
+
+	// Clean up the full path, it was allocated on the heap.
+	free(full_path);
+
+	DLOG("Returning code of mknod: %d", *ret);
 	// The RPC call succeeded, so return 0.
 	return 0;
 }
@@ -129,7 +169,7 @@ int main(int argc, char* argv[]) {
 		int argTypes[4];
 		// First is the path.
 		argTypes[0] =
-			(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;
+			(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;//why 1u?
 		// The second argument is the statbuf.
 		argTypes[1] =
 			(1u << ARG_OUTPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;
@@ -143,7 +183,34 @@ int main(int argc, char* argv[]) {
 		if (ret < 0) {
 			// It may be useful to have debug-printing here.
 #ifdef PRINT_ERR
-			std::cerr << "RPC Server Register Error: " << ret << << std::endl;
+			std::cerr << "RPC Server Register Error of getattr: " << ret << std::endl;
+#endif
+			return ret;
+		}
+	}
+
+	{
+		// There are 3 args for the function (see watdfs_client.c for more
+		// detail).
+		int argTypes[5];
+		// First is the path.
+		argTypes[0] =
+			(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;
+		// The second argument is the mode.
+		argTypes[1] = (1u << ARG_INPUT) | (ARG_INT << 16u);
+		// The third argument is the dev.
+		argTypes[2] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
+		// The fourth argument is the retcode.
+		argTypes[3] = (1u << ARG_OUTPUT) | (ARG_INT << 16u);
+		// Finally we fill in the null terminator.
+		argTypes[4] = 0;
+
+		// We need to register the function with the types and the name.
+		ret = rpcRegister((char*)"mknod", argTypes, watdfs_mknod);
+		if (ret < 0) {
+			// It may be useful to have debug-printing here.
+#ifdef PRINT_ERR
+			std::cerr << "RPC Server Register Error of mknod: " << ret << std::endl;
 #endif
 			return ret;
 		}

@@ -23,7 +23,7 @@ void* watdfs_cli_init(struct fuse_conn_info* conn, const char* path_to_cache,
 	// `rpcClientInit` may fail, for example, if an incorrect port was exported.
 	if (initRet < 0) {
 #ifdef PRINT_ERR
-		std::cerr << "Client Initialization Error: " << initRet << << std::endl;
+		std::cerr << "Client Initialization Error: " << initRet << std::endl;
 #endif
 	}
 
@@ -98,7 +98,7 @@ int watdfs_cli_getattr(void* userdata, const char* path, struct stat* statbuf) {
 	// The third argument is the return code, an output only argument, which is
 	// an integer.
 	// TODO: fill in this argument type.
-	arg_types[2] = (1u << ARG_INPUT) | (ARG_INT << 16u);
+	arg_types[2] = (1u << ARG_OUTPUT) | (ARG_INT << 16u);
 
 	// The return code is not an array, so we need to hand args[2] an int*.
 	// The int* could be the address of an integer located on the stack, or use
@@ -149,7 +149,88 @@ int watdfs_cli_getattr(void* userdata, const char* path, struct stat* statbuf) {
 // CREATE, OPEN AND CLOSE
 int watdfs_cli_mknod(void* userdata, const char* path, mode_t mode, dev_t dev) {
 	// Called to create a file.
-	return -ENOSYS;
+	DLOG("watdfs_cli_mknod called for '%s'", path);
+
+	// getattr has 4 arguments.
+	int ARG_COUNT = 4;
+
+	// Allocate space for the output arguments.
+	void** args = new void* [ARG_COUNT];
+
+	// Allocate the space for arg types, and one extra space for the null
+	// array element.
+	int arg_types[ARG_COUNT + 1];
+
+	// The path has string length (strlen) + 1 (for the null character).
+	int pathlen = strlen(path) + 1;
+
+	// Fill in the arguments
+	// The first argument is the path, it is an input only argument, and a char
+	// array. The length of the array is the length of the path.
+	arg_types[0] =
+		(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)pathlen;
+	// For arrays the argument is the array pointer, not a pointer to a pointer.
+	args[0] = (void*)path;
+
+	// The second argument
+	arg_types[1] = (1u << ARG_INPUT) | (ARG_INT << 16u);
+	args[1] = (void*)&mode;
+
+	// The third argument
+	arg_types[2] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
+	args[2] = (void*)&dev;
+
+	// The fourth argument is the return code, an output only argument, which is
+	// an integer.
+	// TODO: fill in this argument type.
+	arg_types[3] = (1u << ARG_OUTPUT) | (ARG_INT << 16u);
+
+	// The return code is not an array, so we need to hand args[3] an int*.
+	// The int* could be the address of an integer located on the stack, or use
+	// a heap allocated integer, in which case it should be freed.
+	// TODO: Fill in the argument
+	int returnCode;
+	args[3] = (void*)&returnCode;
+
+	// Finally, the last position of the arg types is 0. There is no
+	// corresponding arg.
+	arg_types[4] = 0;
+
+	// MAKE THE RPC CALL
+	int rpc_ret = rpcCall((char*)"mknod", arg_types, args);
+
+	// HANDLE THE RETURN
+	// The integer value watdfs_cli_getattr will return.
+	int fxn_ret = 0;
+	if (rpc_ret < 0) {
+		DLOG("mknod rpc failed with error '%d'", rpc_ret);
+		// Something went wrong with the rpcCall, return a sensible return
+		// value. In this case lets return, -EINVAL
+		fxn_ret = -EINVAL;
+	}
+	else {
+		// Our RPC call succeeded. However, it's possible that the return code
+		// from the server is not 0, that is it may be -errno. Therefore, we
+		// should set our function return value to the retcode from the server.
+
+		// TODO: set the function return value to the return code from the server.
+		fxn_ret = returnCode;
+	}
+
+	//if (fxn_ret < 0) {
+	//	// If the return code of watdfs_cli_getattr is negative (an error), then 
+	//	// we need to make sure that the stat structure is filled with 0s. Otherwise,
+	//	// FUSE will be confused by the contradicting return values.
+	//	memset(statbuf, 0, sizeof(struct stat));
+	//}
+
+	// Clean up the memory we have allocated.
+	delete[]args;
+
+	// Finally return the value we got from the server.
+	return fxn_ret;
+
+	//return -ENOSYS;
 }
 int watdfs_cli_open(void* userdata, const char* path,
 	struct fuse_file_info* fi) {

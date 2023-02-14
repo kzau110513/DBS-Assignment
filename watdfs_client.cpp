@@ -506,6 +506,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 				bufsize = size - MAX_ARRAY_LEN * (rpcCount - 1);
 			}
 			args[2] = (void *)&bufsize;
+			args[3] = (void *)&offset_each;
 			rpc_ret = rpcCall((char *)"read", arg_types, args);
 			DLOG("read rpc with rpc_ret '%d' on %d calls", rpc_ret, rpcCount);
 		}

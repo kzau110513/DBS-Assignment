@@ -440,9 +440,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 	// For arrays the argument is the array pointer, not a pointer to a pointer.
 	args[0] = (void *)path;
 
-	int buflen = strlen(path) + 1;
-
-	arg_types[1] = (1u << ARG_OUTPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)buflen;
+	arg_types[1] = (1u << ARG_OUTPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | sizeof(buf)/ sizeof(buf[0]);
 	args[1] = (void *)buf;
 
 	arg_types[2] = (1u << ARG_INPUT) | (ARG_LONG << 16u);

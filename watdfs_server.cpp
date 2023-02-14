@@ -17,13 +17,7 @@ INIT_LOG
 #include <cstdlib>
 
 #include <fcntl.h>
-
-struct fuse_file_info
-{
-	int flags; // open flags, available in open and release.
-	/* other fields */
-	uint64_t fh; // file handle, may be filled in by open
-};
+#include <fuse.h>
 
 // Global state server_persist_dir.
 char *server_persist_dir = nullptr;

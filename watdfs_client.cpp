@@ -489,8 +489,8 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 	{
 		int rpcTimes = size / MAX_ARRAY_LEN + 1;
 		DLOG("the read need %d rpc calls", rpcTimes);
-		int bufsize = 0;
-		int offset_each = offset;
+		long bufsize = 0;
+		long offset_each = offset;
 		// rpc_ret indicates a success of rpc, returnCode == 0 indicates end of file, returnCode < 0 indicates an error
 		for (rpcCount = 1; rpcCount <= rpcTimes && rpc_ret == 0 && returnCode > 0; rpcCount++)
 		{
@@ -509,7 +509,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 			args[3] = (void *)&offset_each;
 			rpc_ret = rpcCall((char *)"read", arg_types, args);
 			DLOG("read rpc with rpc_ret '%d' on %d calls", rpc_ret, rpcCount);
-			DLOG("bufsize: %d, offset_each: %d", bufsize, offset_each);
+			DLOG("buf: %s, bufsize: %ld, offset_each: %ld", buf, bufsize, offset_each);
 		}
 	}
 

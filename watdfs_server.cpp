@@ -240,7 +240,7 @@ int watdfs_read(int* argTypes, void** args) {
 	// TODO: Make the stat system call, which is the corresponding system call needed
 	// to support getattr. You should use the statbuf as an argument to the stat system call.
 	
-	sys_ret = pread(fi->fh, buf, size, offset);
+	sys_ret = pread(fi->fh, buf, *size, *offset);
 
 	if (sys_ret < 0) {
 		// If there is an error on the system call, then the return code should
@@ -450,12 +450,12 @@ int main(int argc, char* argv[]) {
 		argTypes[0] =
 			(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;//why 1u: the server could not know the length of array, so set as 1
 		//buf
-		arg_types[1] = (1u << ARG_OUTPUT) | (1u << ARG_ARRAY) | 
+		argTypes[1] = (1u << ARG_OUTPUT) | (1u << ARG_ARRAY) |
 			(ARG_CHAR << 16u) | 1u;
 		//size
-		arg_types[2] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
+		argTypes[2] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
 		//offset
-		arg_types[3] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
+		argTypes[3] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
 		// The fifth argument is the fi.
 		argTypes[4] =
 			(1u << ARG_INPUT) |

@@ -426,10 +426,10 @@ int watdfs_cli_read(void* userdata, const char* path, char* buf, size_t size,
 	args[1] = (void*)buf;
 
 	arg_types[2] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
-	args[2] = (void*)size;
+	args[2] = (void*)&size;
 
 	arg_types[3] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
-	args[3] = (void*)offset;
+	args[3] = (void*)&offset;
 
 	// The second argument
 	arg_types[4] =

@@ -204,7 +204,7 @@ int watdfs_release(int* argTypes, void** args) {
 	// Clean up the full path, it was allocated on the heap.
 	free(full_path);
 
-	DLOG("Returning code of mknod: %d", *ret);
+	DLOG("Returning code of release: %d", *ret);
 	// The RPC call succeeded, so return 0.
 	return 0;
 }
@@ -241,6 +241,7 @@ int watdfs_read(int* argTypes, void** args) {
 	// to support getattr. You should use the statbuf as an argument to the stat system call.
 	
 	sys_ret = pread(fi->fh, buf, *size, *offset);
+	DLOG("buffer after pread: %s", buf);
 
 	if (sys_ret < 0) {
 		// If there is an error on the system call, then the return code should
@@ -251,7 +252,7 @@ int watdfs_read(int* argTypes, void** args) {
 	// Clean up the full path, it was allocated on the heap.
 	free(full_path);
 
-	DLOG("Returning code of mknod: %d", *ret);
+	DLOG("Returning code of read: %d", *ret);
 	// The RPC call succeeded, so return 0.
 	return 0;
 }

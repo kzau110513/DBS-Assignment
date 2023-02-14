@@ -2,6 +2,7 @@
 // Starter code for CS 454/654
 // You SHOULD change this file
 //
+#define PRINT_ERR 1
 
 #include "watdfs_client.h"
 #include "debug.h"
@@ -9,8 +10,6 @@ INIT_LOG
 
 #include "rpc.h"
 #include <iostream>
-
-#define PRINT_ERR 1
 
 // SETUP AND TEARDOWN
 void* watdfs_cli_init(struct fuse_conn_info* conn, const char* path_to_cache,

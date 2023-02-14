@@ -2,6 +2,7 @@
 // Starter code for CS 454/654
 // You SHOULD change this file
 //
+#define PRINT_ERR 1
 
 #include "rpc.h"
 #include "debug.h"
@@ -15,7 +16,13 @@ INIT_LOG
 #include <cstring>
 #include <cstdlib>
 
-#define PRINT_ERR 1
+#include <fcntl.h>
+
+struct fuse_file_info {
+	int flags; // open flags, available in open and release.
+	/* other fields */
+	uint64_t fh; // file handle, may be filled in by open
+};
 
 // Global state server_persist_dir.
 char* server_persist_dir = nullptr;
@@ -147,7 +154,7 @@ int watdfs_open(int* argTypes, void** args) {
 
 	// TODO: Make the stat system call, which is the corresponding system call needed
 	// to support getattr. You should use the statbuf as an argument to the stat system call.
-	open_ret = open(full_path, fi->flags);
+	uint64_t open_ret = open(full_path, fi->flags);
 	if (open_ret > 0) {
 		fi->fh = open_ret;
 	}

@@ -150,11 +150,11 @@ int watdfs_open(int* argTypes, void** args) {
 	*ret = 0;
 
 	// Let sys_ret be the return code from the stat system call.
-	int open_ret = 0;
+	uint64_t open_ret = 0;
 
 	// TODO: Make the stat system call, which is the corresponding system call needed
 	// to support getattr. You should use the statbuf as an argument to the stat system call.
-	uint64_t open_ret = open(full_path, fi->flags);
+	open_ret = open(full_path, fi->flags);
 	if (open_ret > 0) {
 		fi->fh = open_ret;
 	}
@@ -166,6 +166,83 @@ int watdfs_open(int* argTypes, void** args) {
 	free(full_path);
 
 	DLOG("Returning code of open: %d", *ret);
+	// The RPC call succeeded, so return 0.
+	return 0;
+}
+
+// The server implementation of release.
+int watdfs_release(int* argTypes, void** args) {
+	// Get the arguments.
+	// The first argument is the path relative to the mountpoint.
+	char* short_path = (char*)args[0];
+	// The second argument is the stat structure, which should be filled in
+	// by this function.
+	struct fuse_file_info* fi = (struct fuse_file_info*)args[1];
+	// The third argument is the return code, which should be set be 0 or -errno.
+	int* ret = (int*)args[2];
+
+	// Get the local file name, so we call our helper function which appends
+	// the server_persist_dir to the given path.
+	char* full_path = get_full_path(short_path);
+
+	// Initially we set set the return code to be 0.
+	*ret = 0;
+
+	// Let sys_ret be the return code from the stat system call.
+	int sys_ret = 0;
+
+	// TODO: Make the stat system call, which is the corresponding system call needed
+	// to support getattr. You should use the statbuf as an argument to the stat system call.
+	sys_ret = close(fi->fh);
+
+	if (sys_ret < 0) {
+		// If there is an error on the system call, then the return code should
+		// be -errno.
+		*ret = -errno;
+	}
+
+	// Clean up the full path, it was allocated on the heap.
+	free(full_path);
+
+	DLOG("Returning code of mknod: %d", *ret);
+	// The RPC call succeeded, so return 0.
+	return 0;
+}
+
+// The server implementation of truncate.
+int watdfs_truncate(int* argTypes, void** args) {
+	// Get the arguments.
+	// The first argument is the path relative to the mountpoint.
+	char* short_path = (char*)args[0];
+	// The second argument: newsize
+	long* newsize = (int*)args[1];
+	// The fourth argument is the return code, which should be set be 0 or -errno.
+	int* ret = (int*)args[2];
+
+	// Get the local file name, so we call our helper function which appends
+	// the server_persist_dir to the given path.
+	char* full_path = get_full_path(short_path);
+
+	// Initially we set set the return code to be 0.
+	*ret = 0;
+
+	// Let sys_ret be the return code from the stat system call.
+	int sys_ret = 0;
+
+	// TODO: Make the stat system call, which is the corresponding system call needed
+	// to support getattr. You should use the statbuf as an argument to the stat system call.
+	sys_ret = truncate(full_path, *newsize);
+
+	if (sys_ret < 0) {
+		// If there is an error on the system call, then the return code should
+		// be -errno.
+		*ret = -errno;
+	}
+
+	// Clean up the full path, it was allocated on the heap.
+	free(full_path);
+
+	DLOG("Returning code of truncate: %d", *ret);
 	// The RPC call succeeded, so return 0.
 	return 0;
 }
@@ -209,6 +286,8 @@ int main(int argc, char* argv[]) {
 	// Note: The braces are used to limit the scope of `argTypes`, so that you can
 	// reuse the variable for multiple registrations. Another way could be to
 	// remove the braces and use `argTypes0`, `argTypes1`, etc.
+
+	//register mknod
 	{
 		// There are 3 args for the function (see watdfs_client.c for more
 		// detail).
@@ -284,6 +363,58 @@ int main(int argc, char* argv[]) {
 			// It may be useful to have debug-printing here.
 #ifdef PRINT_ERR
 			std::cerr << "RPC Server Register Error of open: " << ret << std::endl;
+#endif
+			return ret;
+		}
+	}
+	//register release
+	{
+		// There are 3 args for the function (see watdfs_client.c for more
+		// detail).
+		int argTypes[4];
+		// First is the path.
+		argTypes[0] =
+			(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;//why 1u: the server could not know the length of array, so set as 1
+		// The second argument is the fi.
+		argTypes[1] =
+			(1u << ARG_INPUT) | 
+			(1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;
+		// The third argument is the retcode.
+		argTypes[2] = (1u << ARG_OUTPUT) | (ARG_INT << 16u);
+		// Finally we fill in the null terminator.
+		argTypes[3] = 0;
+
+		// We need to register the function with the types and the name.
+		ret = rpcRegister((char*)"release", argTypes, watdfs_release);
+		if (ret < 0) {
+			// It may be useful to have debug-printing here.
+#ifdef PRINT_ERR
+			std::cerr << "RPC Server Register Error of release: " << ret << std::endl;
+#endif
+			return ret;
+		}
+	}
+	//register truncate
+	{
+		// There are 3 args for the function (see watdfs_client.c for more
+		// detail).
+		int argTypes[4];
+		// First is the path.
+		argTypes[0] =
+			(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;
+		// The second argument is the mode.
+		argTypes[1] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
+		// The fourth argument is the retcode.
+		argTypes[2] = (1u << ARG_OUTPUT) | (ARG_INT << 16u);
+		// Finally we fill in the null terminator.
+		argTypes[3] = 0;
+
+		// We need to register the function with the types and the name.
+		ret = rpcRegister((char*)"truncate", argTypes, watdfs_truncate);
+		if (ret < 0) {
+			// It may be useful to have debug-printing here.
+#ifdef PRINT_ERR
+			std::cerr << "RPC Server Register Error of truncate: " << ret << std::endl;
 #endif
 			return ret;
 		}

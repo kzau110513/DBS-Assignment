@@ -466,7 +466,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 	// The int* could be the address of an integer located on the stack, or use
 	// a heap allocated integer, in which case it should be freed.
 	// TODO: Fill in the argument
-	int returnCode;
+	int returnCode = 1;
 	args[5] = (void *)&returnCode;
 
 	// Finally, the last position of the arg types is 0. There is no
@@ -491,8 +491,8 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 		DLOG("the read need %d rpc calls", rpcTimes);
 		int bufsize = 0;
 		int offset_each = offset;
-		// rpc_ret indicates a success of rpc, returnCode == 0 indicates end of file
-		for (rpcCount = 1; rpcCount <= rpcTimes && rpc_ret == 0 && returnCode != 0; rpcCount++)
+		// rpc_ret indicates a success of rpc, returnCode == 0 indicates end of file, returnCode < 0 indicates an error
+		for (rpcCount = 1; rpcCount <= rpcTimes && rpc_ret == 0 && returnCode > 0; rpcCount++)
 		{
 			// the first (rpcCount - 1) times, bufsize is MAX_ARRAY_LEN
 			if (rpcCount != rpcTimes)

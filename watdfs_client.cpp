@@ -492,7 +492,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 		long bufsize = 0;
 		long offset_each = offset;
 		// rpc_ret indicates a success of rpc, returnCode == 0 indicates end of file, returnCode < 0 indicates an error
-		for (rpcCount = 1; rpcCount <= rpcTimes && rpc_ret == 0 && returnCode > 0; rpcCount++)
+		for (rpcCount = 1; rpcCount <= rpcTimes && rpc_ret == 0 && returnCode == MAX_ARRAY_LEN; rpcCount++)
 		{
 			// the first (rpcCount - 1) times, bufsize is MAX_ARRAY_LEN
 			if (rpcCount != rpcTimes)

@@ -477,8 +477,8 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 	int rpcCount = 0;					   // the times of rpc call
 	int filesize = 0;					   // the actual size of the read file
 	char *bufCache = (char *)malloc(size); // because buf will be changed at every call, we need bufCache to store the buf from every call
+	char *tempBufCache = bufCache;		   // tempBufCache is used to write buf from the server to bufCache, a pointer for loop
 	memset(bufCache, 0, sizeof(size));	   // reset the bufCache
-	memset(buf, 0, sizeof(size));		   // reset the buf
 
 	int rpcTimes = size / MAX_ARRAY_LEN + 1; // theoretically, the maximun time of rpc call
 	DLOG("the read need %d rpc calls", rpcTimes);
@@ -504,7 +504,9 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 		rpc_ret = rpcCall((char *)"read", arg_types, args);
 
 		filesize += returnCode;
-		strcat(bufCache, buf);
+		// memory copy all the data from buf to bufCache for reading, and mempcpy will returns a pointer to the byte following the last written byte
+		// we use this pointer to reset the position in bufCache
+		tempBufCache = (char *)mempcpy(tempBufCache, buf, returnCode); 
 		DLOG("read rpc with rpc_ret '%d' on %d calls", rpc_ret, rpcCount);
 		DLOG("buf: %s, bufsize: %ld, offset_each: %ld, returnCode: %d, after call", buf, bufsize, offset_each, returnCode);
 		// the actual read size is less than the set bufsize, indicating the reading ends
@@ -518,7 +520,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 	if (returnCode < 0)
 	{
 		DLOG("the pread on server side failed with: %d", returnCode);
-		filesize = returnCode; // for the convenience of setting fxn_ret
+		filesize = returnCode; // for the convenience of setting fxn_ret, the return code will be negative
 	}
 
 	int fxn_ret = 0;
@@ -537,8 +539,8 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 		// should set our function return value to the retcode from the server.
 
 		// TODO: set the function return value to the return code from the server.
-		fxn_ret = filesize;	   // return the actual read size
-		strcpy(buf, bufCache); // reset the buf, so that upper function can read from the buf
+		fxn_ret = filesize;				 // return the actual read size
+		memcpy(buf, bufCache, filesize); // memory copy all the data from bufCache to buf for reading
 	}
 
 	// Clean up the memory we have allocated.

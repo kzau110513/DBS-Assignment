@@ -497,7 +497,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 			bufsize = size - MAX_ARRAY_LEN * (rpcCount - 1);
 		}
 		arg_types[1] = (1u << ARG_OUTPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)bufsize; // set the new bufsize length
-		offset_each = offset_each + MAX_ARRAY_LEN * (rpcCount - 1); // the offset for each time should change
+		offset_each = offset + MAX_ARRAY_LEN * (rpcCount - 1); // the offset for each time should change
 		args[2] = (void *)&bufsize;
 		args[3] = (void *)&offset_each;
 		rpc_ret = rpcCall((char *)"read", arg_types, args);

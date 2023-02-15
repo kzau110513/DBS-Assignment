@@ -248,7 +248,7 @@ int watdfs_read(int *argTypes, void **args)
 
 	DLOG("bufsize: %ld, offset_each: %ld, before pread", *size, *offset);
 	pread_ret = pread(fi->fh, buf, *size, *offset); // pread return the actual read size
-	DLOG("buf: %s, returnCode: %d, after pread", buf, *ret);
+	DLOG("buf: %s, returnCode: %d, offset: %ld, after pread", buf, *ret, *offset);
 
 	if (pread_ret > 0)
 	{

@@ -442,7 +442,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 
 	// arg_types[1] = (1u << ARG_OUTPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)buflen;
 	// incorrect: cannot set as buflen, the arg type of buf for each call will be set below
-	args[1] = (void *)buf;
+	// args[1] = (void *)buf;
 
 	arg_types[2] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
 	// args[2] = (void *)&size; //the size for each call will be set below
@@ -474,11 +474,11 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 
 	// MAKE THE RPC CALL
 	int rpc_ret = 0;
-	int rpcCount = 0;					   // the times of rpc call
-	int filesize = 0;					   // the actual size of the read file
-	char *bufCache = (char *)malloc(size); // because buf will be changed at every call, we need bufCache to store the buf from every call
-	char *tempBufCache = bufCache;		   // tempBufCache is used to write buf from the server to bufCache, a pointer for loop
-	memset(bufCache, 0, sizeof(size));	   // reset the bufCache
+	int rpcCount = 0;								// the times of rpc call
+	int filesize = 0;								// the actual size of the read file
+	char *bufCache = (char *)malloc(MAX_ARRAY_LEN); // because buf will be changed at every call, we need bufCache to store the buf from every call
+	char *tempBufCache = buf;						// tempBufCache is used to write bufCache from the server to buf, a pointer for loop
+	memset(bufCache, 0, sizeof(size));				// reset the bufCache
 
 	int rpcTimes = size / MAX_ARRAY_LEN + 1; // theoretically, the maximun time of rpc call
 	DLOG("the read need %d rpc calls", rpcTimes);
@@ -499,6 +499,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 		}
 		arg_types[1] = (1u << ARG_OUTPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)bufsize; // set the new bufsize length
 		offset_each = offset + MAX_ARRAY_LEN * (rpcCount - 1);									   // the offset for each time should change
+		args[1] = (void *)bufCache;
 		args[2] = (void *)&bufsize;
 		args[3] = (void *)&offset_each;
 		rpc_ret = rpcCall((char *)"read", arg_types, args);
@@ -506,7 +507,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 		filesize += returnCode;
 		// memory copy all the data from buf to bufCache for reading, and mempcpy will returns a pointer to the byte following the last written byte
 		// we use this pointer to reset the position in bufCache
-		tempBufCache = (char *)mempcpy(tempBufCache, buf, returnCode); 
+		tempBufCache = (char *)mempcpy(tempBufCache, bufCache, returnCode);
 		DLOG("read rpc with rpc_ret '%d' on %d calls", rpc_ret, rpcCount);
 		DLOG("buf: %s, bufsize: %ld, offset_each: %ld, returnCode: %d, after call", buf, bufsize, offset_each, returnCode);
 		// the actual read size is less than the set bufsize, indicating the reading ends
@@ -540,7 +541,6 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 
 		// TODO: set the function return value to the return code from the server.
 		fxn_ret = filesize;				 // return the actual read size
-		memcpy(buf, bufCache, filesize); // memory copy all the data from bufCache to buf for reading
 	}
 
 	// Clean up the memory we have allocated.

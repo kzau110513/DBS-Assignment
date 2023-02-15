@@ -465,7 +465,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 	// The int* could be the address of an integer located on the stack, or use
 	// a heap allocated integer, in which case it should be freed.
 	// TODO: Fill in the argument
-	int returnCode = 1;
+	int returnCode;
 	args[5] = (void *)&returnCode;
 
 	// Finally, the last position of the arg types is 0. There is no
@@ -492,7 +492,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 		long bufsize = 0;
 		long offset_each = offset;
 		// rpc_ret indicates a success of rpc, returnCode == 0 indicates end of file, returnCode < 0 indicates an error
-		for (rpcCount = 1; rpcCount <= rpcTimes && rpc_ret == 0 && returnCode == MAX_ARRAY_LEN; rpcCount++)
+		for (rpcCount = 1; rpcCount <= rpcTimes && rpc_ret == 0 && returnCode > 0; rpcCount++)
 		{
 			// the first (rpcCount - 1) times, bufsize is MAX_ARRAY_LEN
 			if (rpcCount != rpcTimes)
@@ -510,9 +510,26 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 			args[2] = (void *)&bufsize;
 			args[3] = (void *)&offset_each;
 			rpc_ret = rpcCall((char *)"read", arg_types, args);
+			// the rpc call fails
+			if (rpc_ret < 0)
+			{
+				break;
+			}
+			// the pread fails
+			if (returnCode < 0)
+			{
+				DLOG("the pread on server side failed with: %d", returnCode);
+				filesize = returnCode; // for the convenience of setting fxn_ret
+				break;
+			}
 			filesize += returnCode;
 			DLOG("read rpc with rpc_ret '%d' on %d calls", rpc_ret, rpcCount);
 			DLOG("buf: %s, bufsize: %ld, offset_each: %ld, returnCode: %d, after call", buf, bufsize, offset_each, returnCode);
+			// the actual read size is less than the set bufsize, indicating the reading ends
+			if (returnCode < bufsize)
+			{
+				break;
+			}
 		}
 	}
 

@@ -241,19 +241,21 @@ int watdfs_read(int *argTypes, void **args)
 	*ret = 0;
 
 	// Let sys_ret be the return code from the stat system call.
-	int sys_ret = 0;
+	int pread_ret = 0;
 
 	// TODO: Make the stat system call, which is the corresponding system call needed
 	// to support getattr. You should use the statbuf as an argument to the stat system call.
 
-	DLOG("buf: %s, bufsize: %ld, offset_each: %ld, before pread", buf, *size, *offset);
-	sys_ret = pread(fi->fh, buf, *size, *offset);
-	DLOG("buffer after pread: %s", buf);
+	DLOG("bufsize: %ld, offset_each: %ld, before pread", *size, *offset);
+	pread_ret = pread(fi->fh, buf, *size, *offset); // pread return the actual read size
+	DLOG("buf: %s, returnCode: %d, after pread", buf, *ret);
 
-	if (sys_ret < 0)
+	if (pread_ret > 0)
 	{
-		// If there is an error on the system call, then the return code should
-		// be -errno.
+		*ret = pread_ret;
+	}
+	else
+	{
 		*ret = -errno;
 	}
 

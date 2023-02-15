@@ -477,6 +477,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 	int rpcCount = 0;					   // the times of rpc call
 	int filesize = 0;					   // the actual size of the read file
 	char *bufCache = (char *)malloc(size); // store the buf from every call
+	memset(bufCache, 0, sizeof(size));
 										   // if (size <= MAX_ARRAY_LEN)
 										   // {
 										   // 	DLOG("the read need 1 rpc call");

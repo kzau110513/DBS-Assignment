@@ -2,7 +2,7 @@
 // Starter code for CS 454/654
 // You SHOULD change this file
 //
-#define PRINT_ERR 1
+// #define PRINT_ERR 1
 
 #include "watdfs_client.h"
 #include "debug.h"

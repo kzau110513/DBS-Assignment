@@ -514,7 +514,7 @@ int main(int argc, char *argv[])
 			return ret;
 		}
 	}
-	// register read(not complete)
+	// register read
 	{
 		// There are 6 args for the function (see watdfs_client.c for more
 		// detail).
@@ -549,6 +549,43 @@ int main(int argc, char *argv[])
 			return ret;
 		}
 	}
+
+// register write
+	{
+		// There are 6 args for the function (see watdfs_client.c for more
+		// detail).
+		int argTypes[7];
+		// First is the path.
+		argTypes[0] =
+			(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u; // why 1u: the server could not know the length of array, so set as 1
+		// buf
+		argTypes[1] = (1u << ARG_INPUT) | (1u << ARG_ARRAY) |
+					  (ARG_CHAR << 16u) | 1u;
+		// size
+		argTypes[2] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
+		// offset
+		argTypes[3] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
+		// The fifth argument is the fi.
+		argTypes[4] =
+			(1u << ARG_INPUT) |
+			(1u << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;
+		// The sixth argument is the retcode.
+		argTypes[5] = (1u << ARG_OUTPUT) | (ARG_INT << 16u);
+		// Finally we fill in the null terminator.
+		argTypes[6] = 0;
+
+		// We need to register the function with the types and the name.
+		ret = rpcRegister((char *)"write", argTypes, watdfs_write);
+		if (ret < 0)
+		{
+			// It may be useful to have debug-printing here.
+#ifdef PRINT_ERR
+			std::cerr << "RPC Server Register Error of write: " << ret << std::endl;
+#endif
+			return ret;
+		}
+	}
+
 	// register truncate
 	{
 		// There are 3 args for the function (see watdfs_client.c for more

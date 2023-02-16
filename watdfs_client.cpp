@@ -679,7 +679,7 @@ int watdfs_cli_write(void *userdata, const char *path, const char *buf,
 			{
 				bufsize = size - MAX_ARRAY_LEN * (rpcCount - 1);
 			}
-			arg_types[1] = (1u << ARG_OUTPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)bufsize; // set the new bufsize length
+			arg_types[1] = (1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)bufsize; // set the new bufsize length
 			offset_each = offset + MAX_ARRAY_LEN * (rpcCount - 1);									   // the offset for each time should change
 			tempBufCache = (char *)mempcpy(bufCache, tempBufCache, bufsize);
 			args[1] = (void *)bufCache;

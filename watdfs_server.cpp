@@ -267,6 +267,59 @@ int watdfs_read(int *argTypes, void **args)
 	return 0;
 }
 
+// The server implementation of write.
+int watdfs_write(int *argTypes, void **args)
+{
+	// Get the arguments.
+	// The first argument is the path relative to the mountpoint.
+	char *short_path = (char *)args[0];
+
+	char *buf = (char *)args[1];
+
+	long *size = (long *)args[2];
+
+	long *offset = (long *)args[3];
+
+	// The second argument is the stat structure, which should be filled in
+	// by this function.
+	struct fuse_file_info *fi = (struct fuse_file_info *)args[4];
+	// The third argument is the return code, which should be set be 0 or -errno.
+	int *ret = (int *)args[5];
+
+	// Get the local file name, so we call our helper function which appends
+	// the server_persist_dir to the given path.
+	char *full_path = get_full_path(short_path);
+
+	// Initially we set set the return code to be 0.
+	*ret = 0;
+
+	// Let sys_ret be the return code from the stat system call.
+	int pwrite_ret = 0;
+
+	// TODO: Make the stat system call, which is the corresponding system call needed
+	// to support getattr. You should use the statbuf as an argument to the stat system call.
+
+	DLOG("bufsize: %ld, offset_each: %ld, before pwrite", *size, *offset);
+	pwrite_ret = pwrite(fi->fh, buf, *size, *offset); // pread return the actual read size
+	DLOG("buf: %s, returnCode: %d, offset: %ld, after pwrite", buf, *ret, *offset);
+
+	if (pwrite_ret > 0)
+	{
+		*ret = pwrite_ret;
+	}
+	else
+	{
+		*ret = -errno;
+	}
+
+	// Clean up the full path, it was allocated on the heap.
+	free(full_path);
+
+	DLOG("Returning code of write: %d", *ret);
+	// The RPC call succeeded, so return 0.
+	return 0;
+}
+
 // The server implementation of truncate.
 int watdfs_truncate(int *argTypes, void **args)
 {

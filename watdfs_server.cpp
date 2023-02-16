@@ -432,7 +432,7 @@ int watdfs_utimensat(int *argTypes, void **args)
 		*ret = -errno;
 	}
 
-	sys_ret = utimensat(open_ret, full_path, ts, O_RDWR);
+	sys_ret = utimensat(open_ret, full_path, ts, 0);
 
 	if (sys_ret < 0)
 	{

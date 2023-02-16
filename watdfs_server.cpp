@@ -401,8 +401,8 @@ int watdfs_fsync(int *argTypes, void **args)
 	return 0;
 }
 
-// The server implementation of utimemsat.
-int watdfs_utimemsat(int *argTypes, void **args)
+// The server implementation of utimensat.
+int watdfs_utimensat(int *argTypes, void **args)
 {
 	// Get the arguments.
 	// The first argument is the path relative to the mountpoint.
@@ -445,7 +445,7 @@ int watdfs_utimemsat(int *argTypes, void **args)
 	// Clean up the full path, it was allocated on the heap.
 	free(full_path);
 
-	DLOG("Returning code of utimemsat: %d", *ret);
+	DLOG("Returning code of utimensat: %d", *ret);
 	// The RPC call succeeded, so return 0.
 	return 0;
 }
@@ -732,7 +732,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	// register utimemsat
+	// register utimensat
 	{
 		// There are 3 args for the function (see watdfs_client.c for more
 		// detail).
@@ -750,12 +750,12 @@ int main(int argc, char *argv[])
 		argTypes[3] = 0;
 
 		// We need to register the function with the types and the name.
-		ret = rpcRegister((char *)"utimemsat", argTypes, watdfs_utimemsat);
+		ret = rpcRegister((char *)"utimensat", argTypes, watdfs_utimensat);
 		if (ret < 0)
 		{
 			// It may be useful to have debug-printing here.
 #ifdef PRINT_ERR
-			std::cerr << "RPC Server Register Error of utimemsat: " << ret << std::endl;
+			std::cerr << "RPC Server Register Error of utimensat: " << ret << std::endl;
 #endif
 			return ret;
 		}

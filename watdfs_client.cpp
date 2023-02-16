@@ -934,7 +934,7 @@ int watdfs_cli_utimensat(void *userdata, const char *path,
 	// The second argument
 	arg_types[1] =
 		(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) |
-		(uint)sizeof(struct timespec) * 2;
+		(uint)(sizeof(struct timespec) * 2);
 	args[1] = (void *)ts;
 
 	// The third argument is the return code, an output only argument, which is
@@ -954,14 +954,14 @@ int watdfs_cli_utimensat(void *userdata, const char *path,
 	arg_types[3] = 0;
 
 	// MAKE THE RPC CALL
-	int rpc_ret = rpcCall((char *)"fsync", arg_types, args);
+	int rpc_ret = rpcCall((char *)"utimensat", arg_types, args);
 
 	// HANDLE THE RETURN
 	// The integer value watdfs_cli_open will return.
 	int fxn_ret = 0;
 	if (rpc_ret < 0)
 	{
-		DLOG("fsync rpc failed with error '%d'", rpc_ret);
+		DLOG("utimensat rpc failed with error '%d'", rpc_ret);
 		// Something went wrong with the rpcCall, return a sensible return
 		// value. In this case lets return, -EINVAL
 		fxn_ret = -EINVAL;

@@ -682,7 +682,7 @@ int watdfs_cli_write(void *userdata, const char *path, const char *buf,
 				bufsize = size - MAX_ARRAY_LEN * (rpcCount - 1);
 			}
 			arg_types[1] = (1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)bufsize; // set the new bufsize length
-			offset_each = offset + MAX_ARRAY_LEN * (rpcCount - 1);									   // the offset for each time should change
+			offset_each = offset + MAX_ARRAY_LEN * (rpcCount - 1);									  // the offset for each time should change
 			memcpy(bufCache, tempBufCache, bufsize);
 			DLOG("the tempBufCache: %s before rpc call", tempBufCache);
 			args[1] = (void *)bufCache;
@@ -934,8 +934,7 @@ int watdfs_cli_utimensat(void *userdata, const char *path,
 	// The second argument
 	arg_types[1] =
 		(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) |
-		(uint)sizeof(struct timespec) * (sizeof(ts)/sizeof(ts[0]));
-	DLOG("the length of ts: %d", sizeof(ts)/sizeof(ts[0]));
+		(uint)sizeof(struct timespec) * 2;
 	args[1] = (void *)ts;
 
 	// The third argument is the return code, an output only argument, which is

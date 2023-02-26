@@ -948,6 +948,141 @@ int copy_utimensat(void *userdata, const char *path,
 }
 
 //--------------------the new implementation of wat_cli functions in A3-------------------
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+
+int cli_downloadFile(const char *path, struct files_status *filesStatus, struct fuse_file_info *fi)
+{
+	int originalFlags = fi->flags;
+	// step 0: getattr to get file size
+	struct fuse_file_info *cpyfi = new struct fuse_file_info;
+	memcpy(cpyfi, fi, sizeof(struct fuse_file_info));
+	struct stat *statbuf = new struct stat;
+
+	int getattrRet = copy_getattr((void *)filesStatus, path, statbuf);
+	if (getattrRet < 0)
+	{
+		DLOG("server file getattr fail");
+		delete statbuf;
+		delete cpyfi;
+		return getattrRet;
+	}
+	size_t size = statbuf->st_size;
+
+	// step 1: create file
+	int short_path_len = strlen(path);
+	int dir_len = strlen(filesStatus->pathToCache);
+	int full_len = dir_len + short_path_len + 1;
+	char *full_path = (char *)malloc(full_len);
+	strcpy(full_path, filesStatus->pathToCache);
+	strcat(full_path, path);
+	DLOG("The new file full path on client: %s\n", full_path);
+	// create file and get the file handler
+	int createRet = creat(full_path, 0);
+	if (createRet < 0)
+	{
+		DLOG("local file create fail");
+		delete statbuf;
+		delete cpyfi;
+		free(full_path);
+		return -errno;
+	}
+
+	// step 2: truncate file
+	int truncateRet = truncate(full_path, (off_t)size);
+	if (truncateRet < 0)
+	{
+		DLOG("local file truncate fail");
+		delete statbuf;
+		delete cpyfi;
+		free(full_path);
+		return -errno;
+	}
+
+	// step 3: read from server file
+	char *buf = (char *)malloc(((off_t)size) * sizeof(char));
+	cpyfi->flags = O_RDONLY; // open with read only mode
+	// open file
+	int openRet = copy_open((void *)filesStatus, path, cpyfi);
+	if (openRet < 0)
+	{
+		DLOG("server file open fail");
+		delete statbuf;
+		delete cpyfi;
+		free(buf);
+		free(full_path);
+		return openRet;
+	}
+	// read file
+	int readRet = copy_read((void *)filesStatus, path, buf, size, 0, cpyfi);
+	if (readRet < 0)
+	{
+		DLOG("server file read fail");
+		delete statbuf;
+		delete cpyfi;
+		free(buf);
+		free(full_path);
+		return readRet;
+	}
+
+	// step 4: write local file
+	int writeRet = pwrite(createRet, buf, size, 0);
+	if (writeRet < 0)
+	{
+		DLOG("server file read fail");
+		delete statbuf;
+		delete cpyfi;
+		free(buf);
+		free(full_path);
+		return -errno;
+	}
+
+	// step 5: update metadata
+	// use statbuf->st_mtim to achieve T_client == T_server, set tc as current time
+	struct file_meta newFile = {createRet, originalFlags, statbuf->st_mtim, time(0)};
+	// insert newFile to openFilesStatus
+	filesStatus->openFilesStatus[path] = newFile;
+	// release the server file
+	int releaseRet = copy_release((void *)filesStatus, path, cpyfi);
+	if (releaseRet < 0)
+	{
+		DLOG("server file releaseRet fail");
+		delete statbuf;
+		delete cpyfi;
+		free(buf);
+		free(full_path);
+		return releaseRet;
+	}
+
+	DLOG("download succeed");
+	delete statbuf;
+	delete cpyfi;
+	free(buf);
+	free(full_path);
+	return 0;
+}
+
 // SETUP AND TEARDOWN
 void *watdfs_cli_init(struct fuse_conn_info *conn, const char *path_to_cache,
 					  time_t cache_interval, int *ret_code)
@@ -1197,7 +1332,7 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 
 	struct files_status *filesStatus = (struct files_status *)userdata;
 
-	int originalFlags = fi->flags; // cli_downloadFile function will change the flag
+	// int originalFlags = fi->flags; // cli_downloadFile function will change the flag
 
 	// open has 3 arguments.
 	int ARG_COUNT = 3;
@@ -1242,7 +1377,8 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 	// corresponding arg.
 	arg_types[3] = 0;
 
-	int rpc_ret; // to be determined???
+	// int rpc_ret; // to be determined???
+	int fxn_ret = 0;
 	std::map<std::string, struct file_meta>::iterator it;
 	it = filesStatus->openFilesStatus.find(path);
 	if (it == filesStatus->openFilesStatus.end())
@@ -1250,28 +1386,28 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 		// // MAKE THE RPC CALL
 		// rpc_ret = rpcCall((char *)"open", arg_types, args);
 
-		int downloadRet = cli_downloadFile(path, filesStatus, fi);
+		fxn_ret = cli_downloadFile(path, filesStatus, fi);
 	}
 
 	// HANDLE THE RETURN
 	// The integer value watdfs_cli_open will return.
-	int fxn_ret = 0;
-	if (rpc_ret < 0)
-	{
-		DLOG("open rpc failed with error '%d'", rpc_ret);
-		// Something went wrong with the rpcCall, return a sensible return
-		// value. In this case lets return, -EINVAL
-		fxn_ret = -EINVAL;
-	}
-	else
-	{
-		// Our RPC call succeeded. However, it's possible that the return code
-		// from the server is not 0, that is it may be -errno. Therefore, we
-		// should set our function return value to the retcode from the server.
+	
+	// if (rpc_ret < 0)
+	// {
+	// 	DLOG("open rpc failed with error '%d'", rpc_ret);
+	// 	// Something went wrong with the rpcCall, return a sensible return
+	// 	// value. In this case lets return, -EINVAL
+	// 	fxn_ret = -EINVAL;
+	// }
+	// else
+	// {
+	// 	// Our RPC call succeeded. However, it's possible that the return code
+	// 	// from the server is not 0, that is it may be -errno. Therefore, we
+	// 	// should set our function return value to the retcode from the server.
 
-		// TODO: set the function return value to the return code from the server.
-		fxn_ret = returnCode;
-	}
+	// 	// TODO: set the function return value to the return code from the server.
+	// 	fxn_ret = returnCode;
+	// }
 
 	if (fxn_ret < 0)
 	{
@@ -1948,115 +2084,4 @@ int watdfs_cli_utimensat(void *userdata, const char *path,
 	// Finally return the value we got from the server.
 	return fxn_ret;
 	// return -ENOSYS;
-}
-
-int cli_downloadFile(const char *path, struct files_status *filesStatus, struct fuse_file_info *fi)
-{
-	int originalFlags = fi->flags;
-	int readFlag = O_RDONLY;
-	// step 0: getattr to get file size
-	struct fuse_file_info *fi = new struct fuse_file_info;
-	struct stat *statbuf = new struct stat;
-
-	int getattrRet = copy_getattr((void *)filesStatus, path, statbuf);
-	if (getattrRet < 0)
-	{
-		DLOG("server file getattr fail");
-		delete statbuf;
-		delete fi;
-		return getattrRet;
-	}
-	size_t size = statbuf->st_size;
-
-	// step 1: create file
-	int short_path_len = strlen(path);
-	int dir_len = strlen(filesStatus->pathToCache);
-	int full_len = dir_len + short_path_len + 1;
-	char *full_path = (char *)malloc(full_len);
-	strcpy(full_path, filesStatus->pathToCache);
-	strcat(full_path, path);
-	DLOG("The new file full path on client: %s\n", full_path);
-	// create file and get the file handler
-	int createRet = creat(full_path, 0);
-	if (createRet < 0)
-	{
-		DLOG("local file create fail");
-		delete statbuf;
-		delete fi;
-		free(full_path);
-		return -errno;
-	}
-
-	// step 2: truncate file
-	int truncateRet = truncate(full_path, (off_t)size);
-	if (truncateRet < 0)
-	{
-		DLOG("local file truncate fail");
-		delete statbuf;
-		delete fi;
-		free(full_path);
-		return -errno;
-	}
-
-	// step 3: read from server file
-	char *buf = (char *)malloc(((off_t)size) * sizeof(char));
-	fi->flags = readFlag; // open with read only mode
-	// open file
-	int openRet = copy_open((void *)filesStatus, path, fi);
-	if (openRet < 0)
-	{
-		DLOG("server file open fail");
-		delete statbuf;
-		delete fi;
-		free(buf);
-		free(full_path);
-		return openRet;
-	}
-	// read file
-	int readRet = copy_read((void *)filesStatus, path, buf, size, 0, fi);
-	if (readRet < 0)
-	{
-		DLOG("server file read fail");
-		delete statbuf;
-		delete fi;
-		free(buf);
-		free(full_path);
-		return readRet;
-	}
-
-	// step 4: write local file
-	int writeRet = pwrite(createRet, buf, size, 0);
-	if (writeRet < 0)
-	{
-		DLOG("server file read fail");
-		delete statbuf;
-		delete fi;
-		free(buf);
-		free(full_path);
-		return -errno;
-	}
-
-	// step 5: update metadata
-	// use statbuf->st_mtim to achieve T_client == T_server, set tc as current time
-	struct file_meta newFile = {createRet, originalFlags, statbuf->st_mtim, time(0)};
-	// insert newFile to openFilesStatus
-	filesStatus->openFilesStatus[path] =  newFile;
-	//release the server file
-	int releaseRet = copy_release((void *)filesStatus, path, fi);
-	if (releaseRet < 0)
-	{
-		DLOG("server file releaseRet fail");
-		delete statbuf;
-		delete fi;
-		free(buf);
-		free(full_path);
-		return releaseRet;
-	}
-
-	DLOG("download succeed");
-	delete statbuf;
-	delete fi;
-	free(buf);
-	free(full_path);
-	return 0;
 }

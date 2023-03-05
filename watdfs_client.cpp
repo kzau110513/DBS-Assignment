@@ -1184,7 +1184,7 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	struct fuse_file_info *fi = new struct fuse_file_info;
 	fi->flags = O_RDWR;
 
-	int fxn_ret = copy_open(filesStatus, path, fi);
+	fxn_ret = copy_open(filesStatus, path, fi);
 	if (fxn_ret < 0)
 	{
 		DLOG("server file open fail");
@@ -1501,6 +1501,9 @@ int watdfs_cli_getattr(void *userdata, const char *path, struct stat *statbuf)
 				fxn_ret = cli_downloadFile(path, filesStatus, callFlag);
 				if (fxn_ret < 0)
 					DLOG("fail to fetch server file");
+				// close the file
+				int closeRet = cli_close_file(path, filesStatus);
+				fxn_ret = closeRet;
 			}
 			// do the stat call
 			int statRet = stat(full_path, statbuf);
@@ -1543,7 +1546,6 @@ int watdfs_cli_mknod(void *userdata, const char *path, mode_t mode, dev_t dev)
 	// the file has not yet opened
 	if (fileIsOpen < 0)
 	{
-		char *full_path = get_full_path(path, filesStatus);
 		struct stat clientStatbuf;
 		int statRet = stat(full_path, &clientStatbuf);
 
@@ -1561,7 +1563,7 @@ int watdfs_cli_mknod(void *userdata, const char *path, mode_t mode, dev_t dev)
 				if (cpyStatRet == -ENOENT)
 				{
 					DLOG("server file not exist, mknod on client and server, write back to server");
-					
+
 					int ret = mknod(full_path, mode, dev);
 					if (ret < 0)
 					{
@@ -1581,11 +1583,22 @@ int watdfs_cli_mknod(void *userdata, const char *path, mode_t mode, dev_t dev)
 				// server file exist
 				else if (cpyStatRet == 0)
 				{
-					DLOG("server file exist, download the file and return EEXIST");
-					cli_downloadFile(path, filesStatus, O_RDWR);
-					// close the file
-					cli_close_file(path, filesStatus);
-					return -EEXIST;
+					DLOG("server file exist, download the file and call mknod");
+					int dl_ret = cli_downloadFile(path, filesStatus, O_RDWR);
+					if (dl_ret < 0)
+					{
+						DLOG("mknod: download file fail");
+						fxn_ret = dl_ret;
+						free(full_path);
+						return fxn_ret;
+					}
+					else
+					{
+						int mkRet = mknod(full_path, mode, dev);
+						fxn_ret = mkRet;
+						// close the file after download
+						cli_close_file(path, filesStatus);
+					}
 				}
 				else
 				{
@@ -1607,16 +1620,9 @@ int watdfs_cli_mknod(void *userdata, const char *path, mode_t mode, dev_t dev)
 		else
 		{
 			DLOG("client file exist");
-			int check = cli_freshness_check(path, filesStatus);
-			if (check < 0)
-			{
-				cli_downloadFile(path, filesStatus, O_RDWR);
-				// close the file
-				cli_close_file(path, filesStatus);
-			}
-			return -EEXIST;
+			int mkRet = mknod(full_path, mode, dev);
+			fxn_ret = mkRet;
 		}
-		free(full_path);
 	}
 	// the file has been opened
 	else
@@ -1624,20 +1630,35 @@ int watdfs_cli_mknod(void *userdata, const char *path, mode_t mode, dev_t dev)
 		if ((filesStatus->openFilesStatus[path].clientDesc & O_ACCMODE) == O_RDONLY)
 		{
 			DLOG("the file is read only and cannot mknod");
+			free(full_path);
 			return -EPERM;
 		}
 		else
 		{
-			// TODO: Check freshness.
-			int check = cli_freshness_check(path, filesStatus);
-			if (check < 0)
-			{
-				DLOG("mknod: write back to server");
-				fxn_ret = cli_write_back(path, filesStatus);
-			}
-			return -EEXIST;
+			DLOG("the file is write only or read&write");
+			int mkRet = mknod(full_path, mode, dev);
+			fxn_ret = mkRet;
 		}
 	}
+
+	// TODO: Check freshness.
+	int check = cli_freshness_check(path, filesStatus);
+	if (check < 0)
+	{
+		DLOG("mknod: write back to server");
+		fxn_ret = cli_write_back(path, filesStatus);
+	}
+
+	if (fxn_ret < 0)
+	{
+		DLOG("watdfs_cli_mknod fail");
+	}
+	else
+	{
+		DLOG("watdfs_cli_mknod succeed");
+	}
+
+	free(full_path);
 	// Finally return the value we got from the server.
 	return fxn_ret;
 
@@ -1769,74 +1790,23 @@ int watdfs_cli_release(void *userdata, const char *path,
 
 	DLOG("watdfs_cli_release called for '%s'", path);
 
-	// open has 3 arguments.
-	int ARG_COUNT = 3;
-
-	// Allocate space for the output arguments.
-	void **args = new void *[ARG_COUNT];
-
-	// Allocate the space for arg types, and one extra space for the null
-	// array element.
-	int arg_types[ARG_COUNT + 1];
-
-	// The path has string length (strlen) + 1 (for the null character).
-	int pathlen = strlen(path) + 1;
-
-	// Fill in the arguments
-	// The first argument is the path, it is an input only argument, and a char
-	// array. The length of the array is the length of the path.
-	arg_types[0] =
-		(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)pathlen;
-	// For arrays the argument is the array pointer, not a pointer to a pointer.
-	args[0] = (void *)path;
-
-	// The second argument
-	arg_types[1] =
-		(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) |
-		(uint)sizeof(struct fuse_file_info);
-	args[1] = (void *)fi;
-
-	// The third argument is the return code, an output only argument, which is
-	// an integer.
-	// TODO: fill in this argument type.
-	arg_types[2] = (1u << ARG_OUTPUT) | (ARG_INT << 16u);
-
-	// The return code is not an array, so we need to hand args[3] an int*.
-	// The int* could be the address of an integer located on the stack, or use
-	// a heap allocated integer, in which case it should be freed.
-	// TODO: Fill in the argument
-	int returnCode;
-	args[2] = (void *)&returnCode;
-
-	// Finally, the last position of the arg types is 0. There is no
-	// corresponding arg.
-	arg_types[3] = 0;
-
-	// MAKE THE RPC CALL
-	int rpc_ret = rpcCall((char *)"release", arg_types, args);
-
-	// HANDLE THE RETURN
-	// The integer value watdfs_cli_open will return.
 	int fxn_ret = 0;
-	if (rpc_ret < 0)
-	{
-		DLOG("release rpc failed with error '%d'", rpc_ret);
-		// Something went wrong with the rpcCall, return a sensible return
-		// value. In this case lets return, -EINVAL
-		fxn_ret = -EINVAL;
-	}
-	else
-	{
-		// Our RPC call succeeded. However, it's possible that the return code
-		// from the server is not 0, that is it may be -errno. Therefore, we
-		// should set our function return value to the retcode from the server.
 
-		// TODO: set the function return value to the return code from the server.
-		fxn_ret = returnCode;
+	struct files_status *filesStatus = (struct files_status *)userdata;
+
+	// If open in write mode, flush to server.
+	if ((fi->flags & O_ACCMODE) != O_RDONLY)
+	{
+		fxn_ret = cli_write_back(path, filesStatus);
+		if (fxn_ret < 0)
+		{
+			return fxn_ret;
+		}
 	}
 
-	// Clean up the memory we have allocated.
-	delete[] args;
+	// close the local file
+	int closeRet = cli_close_file(path, filesStatus);
+	fxn_ret = closeRet;
 
 	// Finally return the value we got from the server.
 	return fxn_ret;
@@ -1990,73 +1960,93 @@ int watdfs_cli_truncate(void *userdata, const char *path, off_t newsize)
 
 	DLOG("watdfs_cli_truncate called for '%s'", path);
 
-	// truncate has 3 arguments.
-	int ARG_COUNT = 3;
-
-	// Allocate space for the output arguments.
-	void **args = new void *[ARG_COUNT];
-
-	// Allocate the space for arg types, and one extra space for the null
-	// array element.
-	int arg_types[ARG_COUNT + 1];
-
-	// The path has string length (strlen) + 1 (for the null character).
-	int pathlen = strlen(path) + 1;
-
-	// Fill in the arguments
-	// The first argument is the path, it is an input only argument, and a char
-	// array. The length of the array is the length of the path.
-	arg_types[0] =
-		(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)pathlen;
-	// For arrays the argument is the array pointer, not a pointer to a pointer.
-	args[0] = (void *)path;
-
-	// The second argument
-	arg_types[1] = (1u << ARG_INPUT) | (ARG_LONG << 16u);
-	args[1] = (void *)&newsize;
-
-	// The fourth argument is the return code, an output only argument, which is
-	// an integer.
-	// TODO: fill in this argument type.
-	arg_types[2] = (1u << ARG_OUTPUT) | (ARG_INT << 16u);
-
-	// The return code is not an array, so we need to hand args[3] an int*.
-	// The int* could be the address of an integer located on the stack, or use
-	// a heap allocated integer, in which case it should be freed.
-	// TODO: Fill in the argument
-	int returnCode;
-	args[2] = (void *)&returnCode;
-
-	// Finally, the last position of the arg types is 0. There is no
-	// corresponding arg.
-	arg_types[3] = 0;
-
-	// MAKE THE RPC CALL
-	int rpc_ret = rpcCall((char *)"truncate", arg_types, args);
-
-	// HANDLE THE RETURN
-	// The integer value watdfs_cli_getattr will return.
 	int fxn_ret = 0;
-	if (rpc_ret < 0)
+
+	struct files_status *filesStatus = (struct files_status *)userdata;
+
+	char *full_path = get_full_path(path, filesStatus);
+
+	int fileIsOpen = cli_file_is_open(path, filesStatus);
+	// the file has not yet opened
+	if (fileIsOpen < 0)
 	{
-		DLOG("truncate rpc failed with error '%d'", rpc_ret);
-		// Something went wrong with the rpcCall, return a sensible return
-		// value. In this case lets return, -EINVAL
-		fxn_ret = -EINVAL;
+		struct stat clientStatbuf;
+		int statRet = stat(full_path, &clientStatbuf);
+
+		// if the file is not cached
+		if (statRet < 0)
+		{
+			// the local file not exist
+			if (-errno == -ENOENT)
+			{
+				DLOG("client file not exist");
+				int dl_ret = cli_downloadFile(path, filesStatus, O_RDWR);
+				if (dl_ret < 0)
+				{
+					DLOG("truncate: download file fail");
+					fxn_ret = dl_ret;
+					free(full_path);
+					return fxn_ret;
+				}
+				else
+				{
+					int mkRet = truncate(full_path, newsize);
+					fxn_ret = mkRet;
+					// close the file after download
+					cli_close_file(path, filesStatus);
+				}
+			}
+			// the stat fail
+			else
+			{
+				DLOG("local stat fail");
+				free(full_path);
+				return -errno;
+			}
+		}
+		// if the file is cached
+		else
+		{
+			DLOG("client file exist");
+			int mkRet = truncate(full_path, newsize);
+			fxn_ret = mkRet;
+		}
+	}
+	// the file has been opened
+	else
+	{
+		if ((filesStatus->openFilesStatus[path].clientDesc & O_ACCMODE) == O_RDONLY)
+		{
+			DLOG("the file is read only and cannot truncate");
+			free(full_path);
+			return -EPERM;
+		}
+		else
+		{
+			DLOG("the file is write only or read&write, truncate the file on client");
+			int mkRet = truncate(full_path, newsize);
+			fxn_ret = mkRet;
+		}
+	}
+
+	// TODO: Check freshness.
+	int check = cli_freshness_check(path, filesStatus);
+	if (check < 0)
+	{
+		DLOG("truncate: write back to server");
+		fxn_ret = cli_write_back(path, filesStatus);
+	}
+
+	if (fxn_ret < 0)
+	{
+		DLOG("watdfs_cli_truncate fail");
 	}
 	else
 	{
-		// Our RPC call succeeded. However, it's possible that the return code
-		// from the server is not 0, that is it may be -errno. Therefore, we
-		// should set our function return value to the retcode from the server.
-
-		// TODO: set the function return value to the return code from the server.
-		fxn_ret = returnCode;
+		DLOG("watdfs_cli_truncate succeed");
 	}
 
-	// Clean up the memory we have allocated.
-	delete[] args;
-
+	free(full_path);
 	// Finally return the value we got from the server.
 	return fxn_ret;
 	// return -ENOSYS;
@@ -2097,75 +2087,94 @@ int watdfs_cli_utimensat(void *userdata, const char *path,
 	// Change file access and modification times.
 	DLOG("watdfs_cli_utimensat called for '%s'", path);
 
-	// open has 3 arguments.
-	int ARG_COUNT = 3;
-
-	// Allocate space for the output arguments.
-	void **args = new void *[ARG_COUNT];
-
-	// Allocate the space for arg types, and one extra space for the null
-	// array element.
-	int arg_types[ARG_COUNT + 1];
-
-	// The path has string length (strlen) + 1 (for the null character).
-	int pathlen = strlen(path) + 1;
-
-	// Fill in the arguments
-	// The first argument is the path, it is an input only argument, and a char
-	// array. The length of the array is the length of the path.
-	arg_types[0] =
-		(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) | (uint)pathlen;
-	// For arrays the argument is the array pointer, not a pointer to a pointer.
-	args[0] = (void *)path;
-
-	// The second argument
-	arg_types[1] =
-		(1u << ARG_INPUT) | (1u << ARG_ARRAY) | (ARG_CHAR << 16u) |
-		(uint)(sizeof(struct timespec) * 2);
-	args[1] = (void *)ts;
-
-	// The third argument is the return code, an output only argument, which is
-	// an integer.
-	// TODO: fill in this argument type.
-	arg_types[2] = (1u << ARG_OUTPUT) | (ARG_INT << 16u);
-
-	// The return code is not an array, so we need to hand args[3] an int*.
-	// The int* could be the address of an integer located on the stack, or use
-	// a heap allocated integer, in which case it should be freed.
-	// TODO: Fill in the argument
-	int returnCode;
-	args[2] = (void *)&returnCode;
-
-	// Finally, the last position of the arg types is 0. There is no
-	// corresponding arg.
-	arg_types[3] = 0;
-
-	// MAKE THE RPC CALL
-	int rpc_ret = rpcCall((char *)"utimensat", arg_types, args);
-
-	// HANDLE THE RETURN
-	// The integer value watdfs_cli_open will return.
 	int fxn_ret = 0;
-	if (rpc_ret < 0)
+
+	struct files_status *filesStatus = (struct files_status *)userdata;
+
+	char *full_path = get_full_path(path, filesStatus);
+	int cli_fd = filesStatus->openFilesStatus[path].clientDesc;
+
+	int fileIsOpen = cli_file_is_open(path, filesStatus);
+	// the file has not yet opened
+	if (fileIsOpen < 0)
 	{
-		DLOG("utimensat rpc failed with error '%d'", rpc_ret);
-		// Something went wrong with the rpcCall, return a sensible return
-		// value. In this case lets return, -EINVAL
-		fxn_ret = -EINVAL;
+		struct stat clientStatbuf;
+		int statRet = stat(full_path, &clientStatbuf);
+
+		// if the file is not cached
+		if (statRet < 0)
+		{
+			// the local file not exist
+			if (-errno == -ENOENT)
+			{
+				DLOG("client file not exist");
+				int dl_ret = cli_downloadFile(path, filesStatus, O_RDWR);
+				if (dl_ret < 0)
+				{
+					DLOG("utimensat: download file fail");
+					fxn_ret = dl_ret;
+					free(full_path);
+					return fxn_ret;
+				}
+				else
+				{
+					int mkRet = utimensat(cli_fd, full_path, ts, 0);
+					fxn_ret = mkRet;
+					// close the file after download
+					cli_close_file(path, filesStatus);
+				}
+			}
+			// the stat fail
+			else
+			{
+				DLOG("local stat fail");
+				free(full_path);
+				return -errno;
+			}
+		}
+		// if the file is cached
+		else
+		{
+			DLOG("client file exist");
+			int mkRet = utimensat(cli_fd, full_path, ts, 0);
+			fxn_ret = mkRet;
+		}
+	}
+	// the file has been opened
+	else
+	{
+		if ((filesStatus->openFilesStatus[path].clientDesc & O_ACCMODE) == O_RDONLY)
+		{
+			DLOG("the file is read only and cannot utimensat");
+			free(full_path);
+			return -EPERM;
+		}
+		else
+		{
+			DLOG("the file is write only or read&write, utimensat the file on client");
+			int cli_fd = filesStatus->openFilesStatus[path].clientDesc;
+			int mkRet = utimensat(cli_fd, full_path, ts, 0);
+			fxn_ret = mkRet;
+		}
+	}
+
+	// TODO: Check freshness.
+	int check = cli_freshness_check(path, filesStatus);
+	if (check < 0)
+	{
+		DLOG("utimensat: write back to server");
+		fxn_ret = cli_write_back(path, filesStatus);
+	}
+
+	if (fxn_ret < 0)
+	{
+		DLOG("watdfs_cli_utimensat fail");
 	}
 	else
 	{
-		// Our RPC call succeeded. However, it's possible that the return code
-		// from the server is not 0, that is it may be -errno. Therefore, we
-		// should set our function return value to the retcode from the server.
-
-		// TODO: set the function return value to the return code from the server.
-		fxn_ret = returnCode;
+		DLOG("watdfs_cli_utimensat succeed");
 	}
-
-	// Clean up the memory we have allocated.
-	delete[] args;
-
+	free(full_path);
 	// Finally return the value we got from the server.
 	return fxn_ret;
 	// return -ENOSYS;

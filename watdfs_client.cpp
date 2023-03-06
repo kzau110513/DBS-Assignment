@@ -2197,18 +2197,29 @@ int watdfs_cli_fsync(void *userdata, const char *path,
 	// Force a flush of file data.
 	DLOG("watdfs_cli_fsync called for '%s'", path);
 
-	struct files_status *fileStatus = (struct files_status *)userdata;
+	struct files_status *filesStatus = (struct files_status *)userdata;
+	int fxn_ret = 0;
 
-	int fxn_ret = cli_write_back(path, fileStatus);
-
-	if (fxn_ret < 0)
+	int fileClientMode = filesStatus->openFilesStatus[path].clientMode & O_ACCMODE;
+	// the file is opened with read only
+	if (fileClientMode == O_RDONLY)
 	{
-		DLOG("watdfs_cli_fsync fail");
-		return fxn_ret;
+		return -EPERM;
 	}
+	// the file is opened with write only or read&write
+	else
+	{
+		fxn_ret = cli_write_back(path, filesStatus);
 
-	// Update tc.
-	fileStatus->openFilesStatus[path].tc = time(0);
+		if (fxn_ret < 0)
+		{
+			DLOG("watdfs_cli_fsync fail");
+			return fxn_ret;
+		}
+
+		// Update tc.
+		filesStatus->openFilesStatus[path].tc = time(0);
+	}
 
 	// Finally return the value we got from the server.
 	return fxn_ret;

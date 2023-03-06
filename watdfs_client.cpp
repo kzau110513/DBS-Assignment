@@ -2075,7 +2075,8 @@ int watdfs_cli_write(void *userdata, const char *path, const char *buf,
 			DLOG("the file is read only");
 			DLOG("the file is not allowed to write, error in write");
 			free(full_path);
-			return -EPERM;
+			// return -EPERM;
+			return -EMFILE;
 		}
 	}
 
@@ -2156,6 +2157,7 @@ int watdfs_cli_truncate(void *userdata, const char *path, off_t newsize)
 		{
 			DLOG("the file is read only and cannot truncate");
 			free(full_path);
+			// return -EPERM;
 			return -EMFILE;
 		}
 		else
@@ -2284,7 +2286,8 @@ int watdfs_cli_utimensat(void *userdata, const char *path,
 		{
 			DLOG("the file is read only and cannot utimensat");
 			free(full_path);
-			return -EPERM;
+			// return -EPERM;
+			return -EMFILE;
 		}
 		else
 		{

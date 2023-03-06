@@ -2156,7 +2156,7 @@ int watdfs_cli_truncate(void *userdata, const char *path, off_t newsize)
 		{
 			DLOG("the file is read only and cannot truncate");
 			free(full_path);
-			return -EPERM;
+			return -EMFILE;
 		}
 		else
 		{

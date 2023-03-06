@@ -1309,15 +1309,20 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	}
 
 	// write back server
-	fxn_ret = copy_write(filesStatus, path, buf, fileSize, 0, fi);
-	if (fxn_ret < 0)
+	DLOG("the server file fi->fh before copy_write: %ld", fi->fh);
+	DLOG("path: %s, buf: %s, bufsize: %ld:", path, buf, fileSize);
+	if (fileSize > 0)
 	{
-		DLOG("server file write fail");
-		delete statbuf;
-		delete fi;
-		free(full_path);
-		free(buf);
-		return fxn_ret;
+		fxn_ret = copy_write(filesStatus, path, buf, fileSize, 0, fi);
+		if (fxn_ret < 0)
+		{
+			DLOG("server file write fail");
+			delete statbuf;
+			delete fi;
+			free(full_path);
+			free(buf);
+			return fxn_ret;
+		}
 	}
 
 	// update metadata

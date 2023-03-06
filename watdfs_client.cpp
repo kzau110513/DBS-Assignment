@@ -988,6 +988,21 @@ char *get_full_path(const char *short_path, struct files_status *filesStatus)
 	return full_path;
 }
 
+// open return 0, not open return -1
+int cli_file_is_open(const char *path, struct files_status *filesStatus)
+{
+	std::map<std::string, struct file_meta>::iterator it;
+	it = filesStatus->openFilesStatus.find(path);
+	if (it == filesStatus->openFilesStatus.end())
+	{
+		return -1;
+	}
+	else
+	{
+		return 0;
+	}
+}
+
 // true return 0, false return -1
 int cli_freshness_check(const char *path, struct files_status *filesStatus)
 {
@@ -996,15 +1011,15 @@ int cli_freshness_check(const char *path, struct files_status *filesStatus)
 	int fxn_ret = 0;
 
 	char *full_path = get_full_path(path, filesStatus);
+	int isOpen = cli_file_is_open(path, filesStatus);
 
 	time_t t = filesStatus->cacheInterval;
 	time_t T = time(0);
 
-	struct file_meta fileMeta = filesStatus->openFilesStatus[path];
-
-	// if T - tc < t, do not need to check T_client == T_server
-	if (T - fileMeta.tc >= t)
+	// if the file is not opened, don't check check the T - tc < t, because it doesn't have tc
+	if (isOpen < 0)
 	{
+		DLOG("checking T_client == T_server");
 		struct stat *statClient = new struct stat;
 		struct stat *statServer = new struct stat;
 
@@ -1043,11 +1058,60 @@ int cli_freshness_check(const char *path, struct files_status *filesStatus)
 		free(statClient);
 		free(statServer);
 	}
+	// if the file is opened, check the T - tc < t
 	else
 	{
-		free(full_path);
-		DLOG("the file satisfy T - tc < t");
+		struct file_meta fileMeta = filesStatus->openFilesStatus[path];
+		// if T - tc < t, do not need to check T_client == T_server
+		if (T - fileMeta.tc < t)
+		{
+			free(full_path);
+			DLOG("the file satisfy T - tc < t");
+		}
+		// if T - tc >= t, check T_client == T_server
+		else
+		{
+			DLOG("checking T_client == T_server");
+			struct stat *statClient = new struct stat;
+			struct stat *statServer = new struct stat;
+
+			DLOG("get the stat of local file...");
+			int statRet = stat(full_path, statClient);
+			if (statRet < 0)
+			{
+				DLOG("the local file stat fail");
+				fxn_ret = -errno;
+			}
+
+			DLOG("get the stat of server file...");
+			int getattrRet = copy_getattr((void *)filesStatus, path, statServer);
+			if (getattrRet < 0)
+			{
+				free(full_path);
+				free(statClient);
+				free(statServer);
+				return getattrRet;
+			}
+
+			time_t T_client = statClient->st_mtime;
+			time_t T_server = statServer->st_mtime;
+
+			if (T_client != T_server)
+			{
+				DLOG("the file freshness check fail");
+				fxn_ret = -1;
+			}
+			else
+			{
+				DLOG("the file satisfy T_client == T_server");
+			}
+
+			free(full_path);
+			free(statClient);
+			free(statServer);
+		}
 	}
+
 	DLOG("checking freshness end");
 
 	return fxn_ret;
@@ -1182,9 +1246,10 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 
 	// open file on the server
 	struct fuse_file_info *fi = new struct fuse_file_info;
-	fi->flags = O_RDWR;
+	fi->flags = O_CREAT | O_RDWR;
 
 	fxn_ret = copy_open(filesStatus, path, fi);
+	DLOG("the server file fi->fh: %ld", fi->fh);
 	if (fxn_ret < 0)
 	{
 		DLOG("server file open fail");
@@ -1207,10 +1272,13 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	}
 	off_t fileSize = statbuf->st_size;
 	char *buf = (char *)malloc(fileSize * sizeof(char));
+	DLOG("the local file size is: %ld, buf before pread: %s", fileSize, buf);
 
 	// Read from file to buf.
-	int local_fd = filesStatus->openFilesStatus[path].clientDesc;
-	fxn_ret = pread(local_fd, buf, fileSize, 0);
+	// int local_fd = filesStatus->openFilesStatus[path].clientDesc;
+	int openRet = open(full_path, O_RDONLY);
+
+	fxn_ret = pread(openRet, buf, fileSize, 0);
 	if (fxn_ret < 0)
 	{
 		DLOG("local file read fail");
@@ -1219,8 +1287,11 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 		delete fi;
 		free(full_path);
 		free(buf);
+		close(openRet);
 		return fxn_ret;
 	}
+	close(openRet);
+	DLOG("the read buf is: %s", buf);
 
 	// TODO: lock the file
 	//...
@@ -1274,21 +1345,6 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	free(full_path);
 	free(buf);
 	return fxn_ret;
-}
-
-// true return 0, false return -1
-int cli_file_is_open(const char *path, struct files_status *filesStatus)
-{
-	std::map<std::string, struct file_meta>::iterator it;
-	it = filesStatus->openFilesStatus.find(path);
-	if (it == filesStatus->openFilesStatus.end())
-	{
-		return -1;
-	}
-	else
-	{
-		return 0;
-	}
 }
 
 int cli_close_file(const char *path, struct files_status *filesStatus)
@@ -1411,37 +1467,59 @@ int watdfs_cli_getattr(void *userdata, const char *path, struct stat *statbuf)
 		// if the file is not cached
 		if (statRet < 0)
 		{
-			if (-errno == -ENOENT)
+			struct stat serverStatbuf;
+			int cpyStatRet = copy_getattr(filesStatus, path, &serverStatbuf);
+			// the server file not exist
+			if (cpyStatRet < 0)
 			{
-				DLOG("the file is not cached, downloading...");
-				// download the file, open with O_RDONLY flag
-				int download_ret = cli_downloadFile(path, filesStatus, callFlag);
-				// if download failed
-				if (download_ret < 0)
+				if (cpyStatRet == -ENOENT)
 				{
-					DLOG("download fail");
-					fxn_ret = download_ret;
+					DLOG("the server file not exist");
+					free(full_path);
+					return cpyStatRet;
 				}
-				// if download succeeded
 				else
 				{
-					DLOG("download succeed");
-					// do the stat call
-					int statRet = stat(full_path, statbuf);
-					if (statRet < 0)
-					{
-						DLOG("the local file stat fail");
-						fxn_ret = -errno;
-					}
-					// close the file
-					int closeRet = cli_close_file(path, filesStatus);
-					fxn_ret = closeRet;
+					DLOG("server getattr fail");
+					free(full_path);
+					return cpyStatRet;
 				}
 			}
+			// the server file exist, begin download
 			else
 			{
-				DLOG("the stat call fail");
-				fxn_ret = -errno;
+				if (-errno == -ENOENT)
+				{
+					DLOG("the file is not cached, downloading...");
+					// download the file, open with O_RDONLY flag
+					int download_ret = cli_downloadFile(path, filesStatus, callFlag);
+					// if download failed
+					if (download_ret < 0)
+					{
+						DLOG("download fail");
+						fxn_ret = download_ret;
+					}
+					// if download succeeded
+					else
+					{
+						DLOG("download succeed");
+						// do the stat call
+						int statRet = stat(full_path, statbuf);
+						if (statRet < 0)
+						{
+							DLOG("the local file stat fail");
+							fxn_ret = -errno;
+						}
+						// close the file
+						int closeRet = cli_close_file(path, filesStatus);
+						fxn_ret = closeRet;
+					}
+				}
+				else
+				{
+					DLOG("the stat call fail");
+					fxn_ret = -errno;
+				}
 			}
 		}
 		// the file has been cached
@@ -1455,14 +1533,16 @@ int watdfs_cli_getattr(void *userdata, const char *path, struct stat *statbuf)
 			{
 				fxn_ret = cli_downloadFile(path, filesStatus, callFlag);
 				if (fxn_ret < 0)
+				{
 					DLOG("fail to fetch server file");
+					free(full_path);
+					return fxn_ret;
+				}
+
 				// close the file
 				int closeRet = cli_close_file(path, filesStatus);
 				fxn_ret = closeRet;
 			}
-
-			filesStatus->openFilesStatus.erase(path);
-			DLOG("the local file has been closed");
 			// do the stat call
 			int statRet = stat(full_path, statbuf);
 			if (statRet < 0)
@@ -1500,7 +1580,11 @@ int watdfs_cli_getattr(void *userdata, const char *path, struct stat *statbuf)
 			{
 				fxn_ret = cli_downloadFile(path, filesStatus, callFlag);
 				if (fxn_ret < 0)
+				{
 					DLOG("fail to fetch server file");
+					free(full_path);
+					return fxn_ret;
+				}
 				// close the file
 				int closeRet = cli_close_file(path, filesStatus);
 				fxn_ret = closeRet;
@@ -1524,6 +1608,16 @@ int watdfs_cli_getattr(void *userdata, const char *path, struct stat *statbuf)
 	}
 
 	free(full_path);
+
+	int isOpen = cli_file_is_open(path, filesStatus);
+	if (isOpen < 0)
+	{
+		DLOG("the file is not opened");
+	}
+	else
+	{
+		DLOG("the file is opened");
+	}
 
 	// Finally return the value we got from the server.
 	return fxn_ret;
@@ -1578,7 +1672,26 @@ int watdfs_cli_mknod(void *userdata, const char *path, mode_t mode, dev_t dev)
 						free(full_path);
 						return cpyret;
 					}
-					fxn_ret = cli_write_back(path, filesStatus);
+					// fxn_ret = cli_write_back(path, filesStatus);
+					// update metadata
+					int statRet = stat(full_path, &clientStatbuf);
+					if (statRet < 0)
+					{
+						DLOG("local file stat fail");
+						free(full_path);
+						return fxn_ret;
+					}
+					struct timespec *ts = new struct timespec[2];
+					ts[0] = clientStatbuf.st_atim;
+					ts[1] = clientStatbuf.st_mtim;
+
+					fxn_ret = copy_utimensat(filesStatus, path, ts);
+					if (fxn_ret < 0)
+					{
+						DLOG("server file utimensat fail");
+						free(full_path);
+						return fxn_ret;
+					}
 				}
 				// server file exist
 				else if (cpyStatRet == 0)
@@ -1627,7 +1740,7 @@ int watdfs_cli_mknod(void *userdata, const char *path, mode_t mode, dev_t dev)
 	// the file has been opened
 	else
 	{
-		if ((filesStatus->openFilesStatus[path].clientDesc & O_ACCMODE) == O_RDONLY)
+		if ((filesStatus->openFilesStatus[path].clientMode & O_ACCMODE) == O_RDONLY)
 		{
 			DLOG("the file is read only and cannot mknod");
 			free(full_path);
@@ -1739,7 +1852,11 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 			{
 				fxn_ret = cli_downloadFile(path, filesStatus, callFlag);
 				if (fxn_ret < 0)
+				{
 					DLOG("fail to fetch server file");
+					free(full_path);
+					return fxn_ret;
+				}
 				fi->fh = filesStatus->openFilesStatus[path].clientDesc;
 			}
 			// if freshness is still valid
@@ -1757,6 +1874,11 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 					fi->fh = openRet;
 					struct file_meta newFile = {openRet, callFlag, time(0)};
 					filesStatus->openFilesStatus[path] = newFile;
+					// if((filesStatus->openFilesStatus[path].clientMode & O_ACCMODE) == O_RDONLY){
+					// 	DLOG("the file open with read only");
+					// }else{
+					// 	DLOG("the file open with write only or read&write");
+					// }
 				}
 			}
 		}
@@ -1807,6 +1929,16 @@ int watdfs_cli_release(void *userdata, const char *path,
 	// close the local file
 	int closeRet = cli_close_file(path, filesStatus);
 	fxn_ret = closeRet;
+
+	int isOpen = cli_file_is_open(path, filesStatus);
+	if (isOpen < 0)
+	{
+		DLOG("the file is not opened");
+	}
+	else
+	{
+		DLOG("the file is opened");
+	}
 
 	// Finally return the value we got from the server.
 	return fxn_ret;
@@ -2015,7 +2147,7 @@ int watdfs_cli_truncate(void *userdata, const char *path, off_t newsize)
 	// the file has been opened
 	else
 	{
-		if ((filesStatus->openFilesStatus[path].clientDesc & O_ACCMODE) == O_RDONLY)
+		if ((filesStatus->openFilesStatus[path].clientMode & O_ACCMODE) == O_RDONLY)
 		{
 			DLOG("the file is read only and cannot truncate");
 			free(full_path);
@@ -2143,7 +2275,7 @@ int watdfs_cli_utimensat(void *userdata, const char *path,
 	// the file has been opened
 	else
 	{
-		if ((filesStatus->openFilesStatus[path].clientDesc & O_ACCMODE) == O_RDONLY)
+		if ((filesStatus->openFilesStatus[path].clientMode & O_ACCMODE) == O_RDONLY)
 		{
 			DLOG("the file is read only and cannot utimensat");
 			free(full_path);

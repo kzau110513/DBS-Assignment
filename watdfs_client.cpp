@@ -1591,8 +1591,8 @@ int watdfs_cli_getattr(void *userdata, const char *path, struct stat *statbuf)
 					return fxn_ret;
 				}
 				// close the file
-				int closeRet = cli_close_file(path, filesStatus);
-				fxn_ret = closeRet;
+				// int closeRet = cli_close_file(path, filesStatus);
+				// fxn_ret = closeRet;
 			}
 			// do the stat call
 			int statRet = stat(full_path, statbuf);

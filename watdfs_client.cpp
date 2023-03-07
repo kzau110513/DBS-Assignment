@@ -1176,6 +1176,7 @@ int cli_freshness_check(const char *path, struct files_status *filesStatus)
 		{
 			free(full_path);
 			DLOG("the file satisfy T - tc < t");
+			return 0;
 		}
 		// if T - tc >= t, check T_client == T_server
 		else

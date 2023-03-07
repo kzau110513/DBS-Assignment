@@ -1320,15 +1320,18 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 	DLOG("---------read unlock here---------");
 
 	// step 4: write local file
-	int writeRet = pwrite(createRet, buf, size, 0);
-	if (writeRet < 0)
+	if (size > 0)
 	{
-		DLOG("server file read fail");
-		delete statbuf;
-		delete cpyfi;
-		free(buf);
-		free(full_path);
-		return -errno;
+		int writeRet = pwrite(createRet, buf, size, 0);
+		if (writeRet < 0)
+		{
+			DLOG("server file read fail");
+			delete statbuf;
+			delete cpyfi;
+			free(buf);
+			free(full_path);
+			return -errno;
+		}
 	}
 
 	// step 5: update metadata

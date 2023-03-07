@@ -1496,6 +1496,17 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	}
 	DLOG("---------write unlock here---------");
 
+	fxn_ret = copy_release(filesStatus, path, fi);
+	if (fxn_ret < 0)
+	{
+		DLOG("server file release fail");
+		delete statbuf;
+		delete fi;
+		free(full_path);
+		free(buf);
+		return fxn_ret;
+	}
+
 	DLOG("write back succeed");
 	delete statbuf;
 	delete fi;

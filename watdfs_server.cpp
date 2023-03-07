@@ -178,7 +178,7 @@ int watdfs_open(int *argTypes, void **args)
 			// the open request flag is write flag
 			if (openReqFlag != O_RDONLY)
 			{
-				DLOG("the open request flag is write flag");
+				DLOG("the open request flag is write flag, no conflict");
 				openFilesStatus_s[short_path].serverMode = 1;
 			}
 			// the open request flag is read flag, do nothing
@@ -239,7 +239,7 @@ int watdfs_open(int *argTypes, void **args)
 		openFilesStatus_s[short_path] = fileStatus;
 	}
 
-	int openRet = open(full_path, (fi->flags & O_ACCMODE));
+	int openRet = open(full_path, openReqFlag);
 	if (fi->fh < 0)
 	{
 		DLOG("open on server failed");
@@ -247,8 +247,9 @@ int watdfs_open(int *argTypes, void **args)
 		*ret = -errno;
 		return 0;
 	}
-	DLOG("file fh is %ld", fi->fh);
 	fi->fh = openRet;
+	DLOG("file fh is %ld", fi->fh);
+	
 
 	// Clean up the full path, it was allocated on the heap.
 	free(full_path);

@@ -1998,8 +1998,8 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 	if (fileIsOpen < 0)
 	{
 		DLOG("the file has not yet been opened");
-		struct stat statbuf;
-		int statRet = stat(full_path, &statbuf);
+		struct stat *statbuf = new struct stat;
+		int statRet = stat(full_path, statbuf);
 
 		// if the file is not cached
 		if (statRet < 0)
@@ -2067,6 +2067,7 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 				}
 			}
 		}
+		delete statbuf;
 	}
 	// the file has opened
 	else
@@ -2087,6 +2088,15 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 	}
 
 	free(full_path);
+	int isOpen = cli_file_is_open(path, filesStatus);
+	if (isOpen < 0)
+	{
+		DLOG("the file is not opened");
+	}
+	else
+	{
+		DLOG("the file is opened");
+	}
 
 	// Finally return the value we got from the server.
 	return fxn_ret;
@@ -2113,11 +2123,6 @@ int watdfs_cli_release(void *userdata, const char *path,
 			return fxn_ret;
 		}
 	}
-
-	// close the local file
-	int closeRet = cli_close_file(path, filesStatus);
-	fxn_ret = closeRet;
-
 	// close the server file
 	int serClose = copy_release(filesStatus, path, fi);
 	if (serClose < 0)
@@ -2125,6 +2130,10 @@ int watdfs_cli_release(void *userdata, const char *path,
 		DLOG("server file close error");
 		fxn_ret = serClose;
 	}
+
+	// close the local file
+	int closeRet = cli_close_file(path, filesStatus);
+	fxn_ret = closeRet;
 
 	int isOpen = cli_file_is_open(path, filesStatus);
 	if (isOpen < 0)

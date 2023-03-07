@@ -1483,7 +1483,7 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	}
 
 	// TODO: unlock the file
-	int unlock_ret = watdfs_cli_lock(path, RW_WRITE_LOCK);
+	int unlock_ret = watdfs_cli_unlock(path, RW_WRITE_LOCK);
 	if (unlock_ret < 0)
 	{
 		DLOG("write unlock fail");

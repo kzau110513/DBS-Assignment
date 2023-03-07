@@ -20,6 +20,7 @@ INIT_LOG
 #include <fuse.h>
 #include <map>
 #include "rw_lock.h"
+#include "rw_lock.cpp"
 
 struct file_status_s
 {
@@ -292,7 +293,7 @@ int watdfs_release(int *argTypes, void **args)
 
 	if (openFilesStatus_s.find(short_path) == openFilesStatus_s.end())
 	{
-		DLOG("erroe: the openFilesStatus_s should have the key", short_path);
+		DLOG("error: the openFilesStatus_s should have the key: %s", short_path);
 		free(full_path);
 		*ret = -EPERM;
 		return 0;

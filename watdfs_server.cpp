@@ -18,6 +18,17 @@ INIT_LOG
 
 #include <fcntl.h>
 #include <fuse.h>
+#include <map>
+#include "rw_lock.h"
+
+struct file_status_s
+{
+	int serverMode; // 0 for read, 1 for write
+	int openNum;
+	rw_lock_t *lock;
+};
+
+std::map<std::string, struct file_status_s> openFilesStatus_s;
 
 // Global state server_persist_dir.
 char *server_persist_dir = nullptr;
@@ -150,20 +161,93 @@ int watdfs_open(int *argTypes, void **args)
 	// Initially we set set the return code to be 0.
 	*ret = 0;
 
-	// Let sys_ret be the return code from the stat system call.
-	uint64_t open_ret = 0;
+	int openReqFlag = fi->flags & O_ACCMODE;
 
-	// TODO: Make the stat system call, which is the corresponding system call needed
-	// to support getattr. You should use the statbuf as an argument to the stat system call.
-	open_ret = open(full_path, fi->flags);
-	if (open_ret > 0)
+	struct file_status_s fileStatus;
+
+	// file has been opened
+	if (openFilesStatus_s.find(short_path) != openFilesStatus_s.end() && openFilesStatus_s[short_path].openNum > 0)
 	{
-		fi->fh = open_ret;
+		DLOG("file has been opened");
+		int serMode = openFilesStatus_s[short_path].serverMode;
+		// current open is read mode
+		if (serMode == 0)
+		{
+			DLOG("current open is read mode");
+			// the open request flag is write flag
+			if (openReqFlag != O_RDONLY)
+			{
+				DLOG("the open request flag is write flag");
+				openFilesStatus_s[short_path].serverMode = 1;
+			}
+			// the open request flag is read flag, do nothing
+			else
+			{
+				DLOG("the open request flag is read flag");
+			}
+		}
+		// current open is write mode
+		else
+		{
+			DLOG("current open is write mode");
+			// the open request flag is write flag
+			if (openReqFlag != O_RDONLY)
+			{
+				// two write open conflict
+				DLOG("two write open conflict");
+				free(full_path);
+				*ret = -EACCES;
+				return 0;
+			}
+			// the open request flag is read flag, do nothing
+			else
+			{
+				DLOG("the open request flag is read flag");
+			}
+		}
+		openFilesStatus_s[short_path].openNum += 1;
 	}
+	// file has not been opened
 	else
 	{
-		*ret = -errno;
+		DLOG("file has not been opened");
+		// init the new lock
+		rw_lock_t *newlock = new rw_lock_t;
+		int lockRet = rw_lock_init(newlock);
+		if (lockRet < 0)
+		{
+			DLOG("lock init fail");
+			free(full_path);
+			*ret = lockRet;
+			return 0;
+		}
+
+		fileStatus.lock = newlock;
+		// init the mode
+		if (openReqFlag == O_RDONLY)
+		{
+			fileStatus.serverMode = 0;
+		}
+		else
+		{
+			fileStatus.serverMode = 1;
+		}
+		// init the num
+		fileStatus.openNum = 1;
+		// add to map
+		openFilesStatus_s[short_path] = fileStatus;
 	}
+
+	int openRet = open(full_path, (fi->flags & O_ACCMODE));
+	if (fi->fh < 0)
+	{
+		DLOG("open on server failed");
+		free(full_path);
+		*ret = -errno;
+		return 0;
+	}
+	DLOG("file fh is %ld", fi->fh);
+	fi->fh = openRet;
 
 	// Clean up the full path, it was allocated on the heap.
 	free(full_path);
@@ -192,18 +276,43 @@ int watdfs_release(int *argTypes, void **args)
 	// Initially we set set the return code to be 0.
 	*ret = 0;
 
-	// Let sys_ret be the return code from the stat system call.
-	int sys_ret = 0;
+	int openReqFlag = fi->flags & O_ACCMODE;
 
-	// TODO: Make the stat system call, which is the corresponding system call needed
-	// to support getattr. You should use the statbuf as an argument to the stat system call.
-	sys_ret = close(fi->fh);
-
+	DLOG("fi->fh is %ld", fi->fh);
+	int sys_ret = close(fi->fh);
 	if (sys_ret < 0)
 	{
-		// If there is an error on the system call, then the return code should
-		// be -errno.
-		*ret = -errno;
+		DLOG("server close fail");
+		free(full_path);
+		*ret = sys_ret;
+		return 0;
+	}
+
+	DLOG("before close open number: %d", openFilesStatus_s[short_path].openNum);
+
+	if (openFilesStatus_s.find(short_path) == openFilesStatus_s.end())
+	{
+		DLOG("erroe: the openFilesStatus_s should have the key", short_path);
+		free(full_path);
+		*ret = -EPERM;
+		return 0;
+	}
+	else
+	{
+		openFilesStatus_s[short_path].openNum -= 1;
+		DLOG("after close open number: %d", openFilesStatus_s[short_path].openNum);
+		// if the close belongs to writer, update to read mode
+		if (openReqFlag != O_RDONLY)
+		{
+			openFilesStatus_s[short_path].serverMode = 0;
+		}
+	}
+
+	// if there is no opener, destroy the lock and erase the file from map
+	if (openFilesStatus_s[short_path].openNum == 0)
+	{
+		rw_lock_destroy(openFilesStatus_s[short_path].lock);
+		openFilesStatus_s.erase(short_path);
 	}
 
 	// Clean up the full path, it was allocated on the heap.
@@ -409,7 +518,7 @@ int watdfs_utimensat(int *argTypes, void **args)
 	char *short_path = (char *)args[0];
 	// The second argument is the stat structure, which should be filled in
 	// by this function.
-	struct timespec *ts = (struct timespec *)args[1];//IMPORTANT: ts is an array!!!!!!!!!!!!!!!!!!!!
+	struct timespec *ts = (struct timespec *)args[1]; // IMPORTANT: ts is an array!!!!!!!!!!!!!!!!!!!!
 	// The third argument is the return code, which should be set be 0 or -errno.
 	int *ret = (int *)args[2];
 
@@ -426,7 +535,7 @@ int watdfs_utimensat(int *argTypes, void **args)
 	// TODO: Make the stat system call, which is the corresponding system call needed
 	// to support getattr. You should use the statbuf as an argument to the stat system call.
 	int open_ret = open(full_path, O_RDWR);
-	if(open_ret<0)
+	if (open_ret < 0)
 	{
 		DLOG("the open fails");
 		*ret = -errno;
@@ -447,6 +556,50 @@ int watdfs_utimensat(int *argTypes, void **args)
 
 	DLOG("Returning code of utimensat: %d", *ret);
 	// The RPC call succeeded, so return 0.
+	return 0;
+}
+
+int watdfs_lock(int *argTypes, void **args)
+{
+	char *short_path = (char *)args[0];
+	rw_lock_mode_t *mode = (rw_lock_mode_t *)args[1];
+	int *ret = (int *)args[2];
+
+	char *full_path = get_full_path(short_path);
+
+	*ret = 0;
+
+	int sys_ret = rw_lock_lock(openFilesStatus_s[short_path].lock, *mode);
+
+	if (sys_ret < 0)
+	{
+		*ret = -errno;
+	}
+
+	free(full_path);
+
+	return 0;
+}
+
+int watdfs_unlock(int *argTypes, void **args)
+{
+	char *short_path = (char *)args[0];
+	rw_lock_mode_t *mode = (rw_lock_mode_t *)args[1];
+	int *ret = (int *)args[2];
+
+	char *full_path = get_full_path(short_path);
+
+	*ret = 0;
+
+	int sys_ret = rw_lock_unlock(openFilesStatus_s[short_path].lock, *mode);
+
+	if (sys_ret < 0)
+	{
+		*ret = -errno;
+	}
+
+	free(full_path);
+
 	return 0;
 }
 
@@ -640,7 +793,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-// register write
+	// register write
 	{
 		// There are 6 args for the function (see watdfs_client.c for more
 		// detail).
@@ -756,6 +909,52 @@ int main(int argc, char *argv[])
 			// It may be useful to have debug-printing here.
 #ifdef PRINT_ERR
 			std::cerr << "RPC Server Register Error of utimensat: " << ret << std::endl;
+#endif
+			return ret;
+		}
+	}
+	// register lock
+	{
+		int argTypes[4];
+
+		argTypes[0] = (1 << ARG_INPUT) | (1 << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;
+
+		argTypes[1] = (1 << ARG_INPUT) | (ARG_INT << 16u);
+
+		argTypes[2] = (1 << ARG_OUTPUT) | (ARG_INT << 16u);
+
+		argTypes[3] = 0;
+
+		ret = rpcRegister((char *)"lock", argTypes, watdfs_lock);
+
+		if (ret < 0)
+		{
+			// It may be useful to have debug-printing here.
+#ifdef PRINT_ERR
+			std::cerr << "RPC Server Register Error of lock: " << ret << std::endl;
+#endif
+			return ret;
+		}
+	}
+	// register unlock
+	{
+		int argTypes[4];
+
+		argTypes[0] = (1 << ARG_INPUT) | (1 << ARG_ARRAY) | (ARG_CHAR << 16u) | 1u;
+
+		argTypes[1] = (1 << ARG_INPUT) | (ARG_INT << 16u);
+
+		argTypes[2] = (1 << ARG_OUTPUT) | (ARG_INT << 16u);
+
+		argTypes[3] = 0;
+
+		ret = rpcRegister((char *)"unlock", argTypes, watdfs_unlock);
+
+		if (ret < 0)
+		{
+			// It may be useful to have debug-printing here.
+#ifdef PRINT_ERR
+			std::cerr << "RPC Server Register Error of unlock: " << ret << std::endl;
 #endif
 			return ret;
 		}

@@ -11,6 +11,7 @@ INIT_LOG
 #include "rpc.h"
 #include <iostream>
 #include <map>
+#include "rw_lock.h"
 
 struct file_meta
 {
@@ -964,12 +965,118 @@ int copy_utimensat(void *userdata, const char *path,
 //
 //
 //
-//
+//------------------------lock functions---------------------
+int watdfs_cli_lock(const char *path, rw_lock_mode_t mode) {
+
+    int ARG_COUNT = 3;
+
+    void **args = (void**) malloc(ARG_COUNT * sizeof(void*));
+
+    int arg_types[ARG_COUNT + 1];
+    
+    int pathlen = strlen(path) + 1;
+    
+    int returnCode;
+    
+    arg_types[0] = (1 << ARG_INPUT) | (1 << ARG_ARRAY) | (ARG_CHAR << 16u) | pathlen;
+    args[0] = (void*)path;
+    
+    arg_types[1] = (1 << ARG_INPUT) |  (ARG_INT << 16u) ;
+    args[1] = (void*)&mode;
+    
+    arg_types[2] = (1 << ARG_OUTPUT) | (ARG_INT << 16u) ;
+    args[2] = (void*)&returnCode;
+
+    arg_types[3] = 0;
+    
+    // MAKE THE RPC CALL
+	int rpc_ret = rpcCall((char *)"lock", arg_types, args);
+
+	// HANDLE THE RETURN
+	// The integer value watdfs_cli_open will return.
+	int fxn_ret = 0;
+	if (rpc_ret < 0)
+	{
+		DLOG("lock rpc failed with error '%d'", rpc_ret);
+		// Something went wrong with the rpcCall, return a sensible return
+		// value. In this case lets return, -EINVAL
+		fxn_ret = -EINVAL;
+	}
+	else
+	{
+		// Our RPC call succeeded. However, it's possible that the return code
+		// from the server is not 0, that is it may be -errno. Therefore, we
+		// should set our function return value to the retcode from the server.
+
+		// TODO: set the function return value to the return code from the server.
+		fxn_ret = returnCode;
+	}
+
+	// Clean up the memory we have allocated.
+	delete[] args;
+
+	// Finally return the value we got from the server.
+	return fxn_ret;
+}
+
+int watdfs_cli_unlock(const char *path, rw_lock_mode_t mode){
+
+    int ARG_COUNT = 3;
+
+    void **args = (void**) malloc(ARG_COUNT * sizeof(void*));
+
+    int arg_types[ARG_COUNT + 1];
+    
+    int pathlen = strlen(path) + 1;
+    
+    int returnCode;
+    
+    arg_types[0] = (1 << ARG_INPUT) | (1 << ARG_ARRAY) | (ARG_CHAR << 16u) | pathlen;
+    args[0] = (void*)path;
+    
+    arg_types[1] = (1 << ARG_INPUT) |  (ARG_INT << 16u) ;
+    args[1] = (void*)&mode;
+    
+    arg_types[2] = (1 << ARG_OUTPUT) | (ARG_INT << 16u) ;
+    args[2] = (void*)&returnCode;
+
+    arg_types[3] = 0;
+    
+   // MAKE THE RPC CALL
+	int rpc_ret = rpcCall((char *)"unlock", arg_types, args);
+
+	// HANDLE THE RETURN
+	// The integer value watdfs_cli_open will return.
+	int fxn_ret = 0;
+	if (rpc_ret < 0)
+	{
+		DLOG("unlock rpc failed with error '%d'", rpc_ret);
+		// Something went wrong with the rpcCall, return a sensible return
+		// value. In this case lets return, -EINVAL
+		fxn_ret = -EINVAL;
+	}
+	else
+	{
+		// Our RPC call succeeded. However, it's possible that the return code
+		// from the server is not 0, that is it may be -errno. Therefore, we
+		// should set our function return value to the retcode from the server.
+
+		// TODO: set the function return value to the return code from the server.
+		fxn_ret = returnCode;
+	}
+
+	// Clean up the memory we have allocated.
+	delete[] args;
+
+	// Finally return the value we got from the server.
+	return fxn_ret;
+}
 //
 //
 //
 //
 //--------------------------util functions--------------------------------
+
 
 char *get_full_path(const char *short_path, struct files_status *filesStatus)
 {
@@ -1161,6 +1268,17 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		return -errno;
 	}
 
+	int lock_ret = watdfs_cli_lock(path, RW_READ_LOCK);
+	if (lock_ret < 0)
+	{
+		DLOG("read lock fail");
+		delete statbuf;
+		delete cpyfi;
+		free(full_path);
+		return lock_ret;
+	}
+	DLOG("---------read lock here---------");
+
 	// step 3: read from server file
 	char *buf = (char *)malloc(((off_t)size) * sizeof(char));
 	cpyfi->flags = O_RDONLY; // open with read only mode
@@ -1186,6 +1304,18 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		free(full_path);
 		return readRet;
 	}
+
+	int unlock_ret = watdfs_cli_unlock(path, RW_READ_LOCK);
+	if (unlock_ret < 0)
+	{
+		DLOG("read unlock fail");
+		delete statbuf;
+		delete cpyfi;
+		free(buf);
+		free(full_path);
+		return unlock_ret;
+	}
+	DLOG("---------read unlock here---------");
 
 	// step 4: write local file
 	int writeRet = pwrite(createRet, buf, size, 0);
@@ -1294,7 +1424,18 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	DLOG("the read buf is: %s", buf);
 
 	// TODO: lock the file
-	//...
+	int lock_ret = watdfs_cli_lock(path, RW_WRITE_LOCK);
+	if (lock_ret < 0)
+	{
+		DLOG("write lock fail");
+		fxn_ret = lock_ret;
+		delete statbuf;
+		delete fi;
+		free(full_path);
+		free(buf);
+		return fxn_ret;
+	}
+	DLOG("---------write lock here---------");
 
 	// truncate the file
 	fxn_ret = copy_truncate(filesStatus, path, 0);
@@ -1342,7 +1483,18 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	}
 
 	// TODO: unlock the file
-	//...
+	int unlock_ret = watdfs_cli_lock(path, RW_WRITE_LOCK);
+	if (unlock_ret < 0)
+	{
+		DLOG("write unlock fail");
+		fxn_ret = unlock_ret;
+		delete statbuf;
+		delete fi;
+		free(full_path);
+		free(buf);
+		return fxn_ret;
+	}
+	DLOG("---------write unlock here---------");
 
 	DLOG("write back succeed");
 	delete statbuf;

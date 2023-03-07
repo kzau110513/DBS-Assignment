@@ -15,9 +15,10 @@ INIT_LOG
 
 struct file_meta
 {
-	int clientDesc;
+	u_int64_t clientDesc;
 	int clientMode;
 	time_t tc;
+	u_int64_t serverDesc;
 };
 
 struct files_status
@@ -966,30 +967,31 @@ int copy_utimensat(void *userdata, const char *path,
 //
 //
 //------------------------lock functions---------------------
-int watdfs_cli_lock(const char *path, rw_lock_mode_t mode) {
+int watdfs_cli_lock(const char *path, rw_lock_mode_t mode)
+{
 
-    int ARG_COUNT = 3;
+	int ARG_COUNT = 3;
 
-    void **args = (void**) malloc(ARG_COUNT * sizeof(void*));
+	void **args = (void **)malloc(ARG_COUNT * sizeof(void *));
 
-    int arg_types[ARG_COUNT + 1];
-    
-    int pathlen = strlen(path) + 1;
-    
-    int returnCode;
-    
-    arg_types[0] = (1 << ARG_INPUT) | (1 << ARG_ARRAY) | (ARG_CHAR << 16u) | pathlen;
-    args[0] = (void*)path;
-    
-    arg_types[1] = (1 << ARG_INPUT) |  (ARG_INT << 16u) ;
-    args[1] = (void*)&mode;
-    
-    arg_types[2] = (1 << ARG_OUTPUT) | (ARG_INT << 16u) ;
-    args[2] = (void*)&returnCode;
+	int arg_types[ARG_COUNT + 1];
 
-    arg_types[3] = 0;
-    
-    // MAKE THE RPC CALL
+	int pathlen = strlen(path) + 1;
+
+	int returnCode;
+
+	arg_types[0] = (1 << ARG_INPUT) | (1 << ARG_ARRAY) | (ARG_CHAR << 16u) | pathlen;
+	args[0] = (void *)path;
+
+	arg_types[1] = (1 << ARG_INPUT) | (ARG_INT << 16u);
+	args[1] = (void *)&mode;
+
+	arg_types[2] = (1 << ARG_OUTPUT) | (ARG_INT << 16u);
+	args[2] = (void *)&returnCode;
+
+	arg_types[3] = 0;
+
+	// MAKE THE RPC CALL
 	int rpc_ret = rpcCall((char *)"lock", arg_types, args);
 
 	// HANDLE THE RETURN
@@ -1019,30 +1021,31 @@ int watdfs_cli_lock(const char *path, rw_lock_mode_t mode) {
 	return fxn_ret;
 }
 
-int watdfs_cli_unlock(const char *path, rw_lock_mode_t mode){
+int watdfs_cli_unlock(const char *path, rw_lock_mode_t mode)
+{
 
-    int ARG_COUNT = 3;
+	int ARG_COUNT = 3;
 
-    void **args = (void**) malloc(ARG_COUNT * sizeof(void*));
+	void **args = (void **)malloc(ARG_COUNT * sizeof(void *));
 
-    int arg_types[ARG_COUNT + 1];
-    
-    int pathlen = strlen(path) + 1;
-    
-    int returnCode;
-    
-    arg_types[0] = (1 << ARG_INPUT) | (1 << ARG_ARRAY) | (ARG_CHAR << 16u) | pathlen;
-    args[0] = (void*)path;
-    
-    arg_types[1] = (1 << ARG_INPUT) |  (ARG_INT << 16u) ;
-    args[1] = (void*)&mode;
-    
-    arg_types[2] = (1 << ARG_OUTPUT) | (ARG_INT << 16u) ;
-    args[2] = (void*)&returnCode;
+	int arg_types[ARG_COUNT + 1];
 
-    arg_types[3] = 0;
-    
-   // MAKE THE RPC CALL
+	int pathlen = strlen(path) + 1;
+
+	int returnCode;
+
+	arg_types[0] = (1 << ARG_INPUT) | (1 << ARG_ARRAY) | (ARG_CHAR << 16u) | pathlen;
+	args[0] = (void *)path;
+
+	arg_types[1] = (1 << ARG_INPUT) | (ARG_INT << 16u);
+	args[1] = (void *)&mode;
+
+	arg_types[2] = (1 << ARG_OUTPUT) | (ARG_INT << 16u);
+	args[2] = (void *)&returnCode;
+
+	arg_types[3] = 0;
+
+	// MAKE THE RPC CALL
 	int rpc_ret = rpcCall((char *)"unlock", arg_types, args);
 
 	// HANDLE THE RETURN
@@ -1076,7 +1079,6 @@ int watdfs_cli_unlock(const char *path, rw_lock_mode_t mode){
 //
 //
 //--------------------------util functions--------------------------------
-
 
 char *get_full_path(const char *short_path, struct files_status *filesStatus)
 {
@@ -1245,7 +1247,7 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 	char *full_path = get_full_path(path, filesStatus);
 	DLOG("The new file full path on client: %s\n", full_path);
 	// create file and get the file handler
-	int createRet = open(full_path, O_CREAT | O_RDWR, S_IRWXU);
+	u_int64_t createRet = open(full_path, O_CREAT | O_RDWR, S_IRWXU);
 	if (createRet < 0)
 	{
 		DLOG("local file create fail");
@@ -1377,15 +1379,16 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	// open file on the server
 	struct fuse_file_info *fi = new struct fuse_file_info;
 	fi->flags = O_CREAT | O_RDWR;
+	fi->fh = filesStatus->openFilesStatus[path].serverDesc;
 
-	fxn_ret = copy_open(filesStatus, path, fi);
-	DLOG("the server file fi->fh: %ld", fi->fh);
-	if (fxn_ret < 0)
-	{
-		DLOG("server file open fail");
-		delete fi;
-		return fxn_ret;
-	}
+	// fxn_ret = copy_open(filesStatus, path, fi);
+	// DLOG("the server file fi->fh: %ld", fi->fh);
+	// if (fxn_ret < 0)
+	// {
+	// 	DLOG("server file open fail");
+	// 	delete fi;
+	// 	return fxn_ret;
+	// }
 
 	// get the size of local file
 	char *full_path = get_full_path(path, filesStatus);
@@ -1496,16 +1499,16 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	}
 	DLOG("---------write unlock here---------");
 
-	fxn_ret = copy_release(filesStatus, path, fi);
-	if (fxn_ret < 0)
-	{
-		DLOG("server file release fail");
-		delete statbuf;
-		delete fi;
-		free(full_path);
-		free(buf);
-		return fxn_ret;
-	}
+	// fxn_ret = copy_release(filesStatus, path, fi);
+	// if (fxn_ret < 0)
+	// {
+	// 	DLOG("server file release fail");
+	// 	delete statbuf;
+	// 	delete fi;
+	// 	free(full_path);
+	// 	free(buf);
+	// 	return fxn_ret;
+	// }
 
 	DLOG("write back succeed");
 	delete statbuf;
@@ -1969,10 +1972,24 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 	}
 
 	struct files_status *filesStatus = (struct files_status *)userdata;
+	int fxn_ret = 0;
+
+	// open the server file
+	int serOpen = copy_open(filesStatus, path, fi);
+	if (serOpen < 0)
+	{
+		DLOG("server file open error");
+		return serOpen;
+	}
+	else
+	{
+		DLOG("server file open succeed");
+	}
+
 	char *full_path = get_full_path(path, filesStatus);
 
-	int fxn_ret = 0;
 	int fileIsOpen = cli_file_is_open(path, filesStatus);
+
 	// the file has not yet opened
 	if (fileIsOpen < 0)
 	{
@@ -1999,7 +2016,7 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 				{
 					DLOG("download succeed");
 					// do not need the open call, return the file descriptor in the map
-					fi->fh = filesStatus->openFilesStatus[path].clientDesc;
+					// fi->fh = filesStatus->openFilesStatus[path].clientDesc;
 				}
 			}
 			else
@@ -2025,12 +2042,12 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 					free(full_path);
 					return fxn_ret;
 				}
-				fi->fh = filesStatus->openFilesStatus[path].clientDesc;
+				// fi->fh = filesStatus->openFilesStatus[path].clientDesc;
 			}
 			// if freshness is still valid
 			else
 			{
-				int openRet = open(full_path, callFlag);
+				u_int64_t openRet = open(full_path, callFlag);
 
 				if (openRet < 0)
 				{
@@ -2039,14 +2056,10 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 				}
 				else
 				{
-					fi->fh = openRet;
+					// fi->fh = openRet;
 					struct file_meta newFile = {openRet, callFlag, time(0)};
+					newFile.serverDesc = fi->fh;
 					filesStatus->openFilesStatus[path] = newFile;
-					// if((filesStatus->openFilesStatus[path].clientMode & O_ACCMODE) == O_RDONLY){
-					// 	DLOG("the file open with read only");
-					// }else{
-					// 	DLOG("the file open with write only or read&write");
-					// }
 				}
 			}
 		}
@@ -2057,6 +2070,9 @@ int watdfs_cli_open(void *userdata, const char *path, struct fuse_file_info *fi)
 		DLOG("the file has been opened");
 		fxn_ret = -EMFILE;
 	}
+
+	DLOG("the server file descriptor: %ld", fi->fh);
+	DLOG("the client file descriptor: %ld", filesStatus->openFilesStatus[path].clientDesc);
 
 	if (fxn_ret < 0)
 	{
@@ -2097,6 +2113,14 @@ int watdfs_cli_release(void *userdata, const char *path,
 	// close the local file
 	int closeRet = cli_close_file(path, filesStatus);
 	fxn_ret = closeRet;
+
+	// close the server file
+	int serClose = copy_release(filesStatus, path, fi);
+	if (serClose < 0)
+	{
+		DLOG("server file close error");
+		fxn_ret = serClose;
+	}
 
 	int isOpen = cli_file_is_open(path, filesStatus);
 	if (isOpen < 0)

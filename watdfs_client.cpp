@@ -1100,9 +1100,7 @@ char *get_full_path(const char *short_path, struct files_status *filesStatus)
 // open return 0, not open return -1
 int cli_file_is_open(const char *path, struct files_status *filesStatus)
 {
-	std::map<std::string, struct file_meta>::iterator it;
-	it = filesStatus->openFilesStatus.find(path);
-	if (it == filesStatus->openFilesStatus.end())
+	if (filesStatus->openFilesStatus.find(path) == filesStatus->openFilesStatus.end())
 	{
 		return -1;
 	}
@@ -1141,7 +1139,7 @@ int cli_freshness_check(const char *path, struct files_status *filesStatus)
 		}
 
 		DLOG("get the stat of server file...");
-		int getattrRet = copy_getattr((void *)filesStatus, path, statServer);
+		int getattrRet = copy_getattr(filesStatus, path, statServer);
 		if (getattrRet < 0)
 		{
 			free(full_path);
@@ -1271,17 +1269,6 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		return -errno;
 	}
 
-	int lock_ret = watdfs_cli_lock(path, RW_READ_LOCK);
-	if (lock_ret < 0)
-	{
-		DLOG("read lock fail");
-		delete statbuf;
-		delete cpyfi;
-		free(full_path);
-		return lock_ret;
-	}
-	DLOG("---------read lock here---------");
-
 	// step 3: read from server file
 	char *buf = (char *)malloc(((off_t)size) * sizeof(char));
 	cpyfi->flags = O_RDONLY; // open with read only mode
@@ -1296,6 +1283,18 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		free(full_path);
 		return openRet;
 	}
+
+	int lock_ret = watdfs_cli_lock(path, RW_READ_LOCK);
+	if (lock_ret < 0)
+	{
+		DLOG("read lock fail");
+		delete statbuf;
+		delete cpyfi;
+		free(full_path);
+		return lock_ret;
+	}
+	DLOG("---------read lock here---------");
+
 	// read file
 	int readRet = copy_read((void *)filesStatus, path, buf, size, 0, cpyfi);
 	if (readRet < 0)
@@ -1319,6 +1318,18 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		return unlock_ret;
 	}
 	DLOG("---------read unlock here---------");
+
+	// release the server file
+	int releaseRet = copy_release((void *)filesStatus, path, cpyfi);
+	if (releaseRet < 0)
+	{
+		DLOG("server file releaseRet fail");
+		delete statbuf;
+		delete cpyfi;
+		free(buf);
+		free(full_path);
+		return releaseRet;
+	}
 
 	// step 4: write local file
 	if (size > 0)
@@ -1354,17 +1365,6 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 
 	// insert newFile to openFilesStatus
 	filesStatus->openFilesStatus[path] = newFile;
-	// release the server file
-	int releaseRet = copy_release((void *)filesStatus, path, cpyfi);
-	if (releaseRet < 0)
-	{
-		DLOG("server file releaseRet fail");
-		delete statbuf;
-		delete cpyfi;
-		free(buf);
-		free(full_path);
-		return releaseRet;
-	}
 
 	DLOG("cli_downloadFile succeed");
 	delete statbuf;
@@ -1642,6 +1642,7 @@ int watdfs_cli_getattr(void *userdata, const char *path, struct stat *statbuf)
 		// if the file is not cached
 		if (statRet < 0)
 		{
+			DLOG("the file is not cached, check the server file");
 			struct stat serverStatbuf;
 			int cpyStatRet = copy_getattr(filesStatus, path, &serverStatbuf);
 			// the server file not exist

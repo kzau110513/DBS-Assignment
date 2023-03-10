@@ -1702,9 +1702,6 @@ int watdfs_cli_getattr(void *userdata, const char *path, struct stat *statbuf)
 						DLOG("the local file stat fail");
 						fxn_ret = -errno;
 					}
-					// close the file
-					int closeRet = cli_close_file(path, filesStatus);
-					fxn_ret = closeRet;
 				}
 				// return fxn_ret;
 			}

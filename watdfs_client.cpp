@@ -2199,14 +2199,6 @@ int watdfs_cli_write(void *userdata, const char *path, const char *buf,
 		// the file is write only or write&read
 		if (fileClientMode != O_RDONLY)
 		{
-			DLOG("the file is write only or write&read");
-			fxn_ret = truncate(full_path, 0);
-			if (fxn_ret < 0)
-			{
-				DLOG("the local truncate fail");
-				free(full_path);
-				return -errno;
-			}
 			fxn_ret = pwrite(filesStatus->openFilesStatus[path].clientDesc, buf, size, offset);
 			if (fxn_ret < 0)
 			{

@@ -1308,30 +1308,6 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		return readRet;
 	}
 
-	int unlock_ret = watdfs_cli_unlock(path, RW_READ_LOCK);
-	if (unlock_ret < 0)
-	{
-		DLOG("read unlock fail");
-		delete statbuf;
-		delete cpyfi;
-		free(buf);
-		free(full_path);
-		return unlock_ret;
-	}
-	DLOG("---------read unlock here---------");
-
-	// release the server file
-	int releaseRet = copy_release((void *)filesStatus, path, cpyfi);
-	if (releaseRet < 0)
-	{
-		DLOG("server file releaseRet fail");
-		delete statbuf;
-		delete cpyfi;
-		free(buf);
-		free(full_path);
-		return releaseRet;
-	}
-
 	// step 4: write local file
 	if (size > 0)
 	{
@@ -1362,6 +1338,30 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		free(buf);
 		free(full_path);
 		return -errno;
+	}
+
+	int unlock_ret = watdfs_cli_unlock(path, RW_READ_LOCK);
+	if (unlock_ret < 0)
+	{
+		DLOG("read unlock fail");
+		delete statbuf;
+		delete cpyfi;
+		free(buf);
+		free(full_path);
+		return unlock_ret;
+	}
+	DLOG("---------read unlock here---------");
+
+	// release the server file
+	int releaseRet = copy_release((void *)filesStatus, path, cpyfi);
+	if (releaseRet < 0)
+	{
+		DLOG("server file releaseRet fail");
+		delete statbuf;
+		delete cpyfi;
+		free(buf);
+		free(full_path);
+		return releaseRet;
 	}
 
 	// insert newFile to openFilesStatus
@@ -2200,10 +2200,17 @@ int watdfs_cli_write(void *userdata, const char *path, const char *buf,
 		if (fileClientMode != O_RDONLY)
 		{
 			DLOG("the file is write only or write&read");
+			fxn_ret = truncate(full_path, 0);
+			if (fxn_ret < 0)
+			{
+				DLOG("the local truncate fail");
+				free(full_path);
+				return -errno;
+			}
 			fxn_ret = pwrite(filesStatus->openFilesStatus[path].clientDesc, buf, size, offset);
 			if (fxn_ret < 0)
 			{
-				DLOG("the pwrite fail");
+				DLOG("the local pwrite fail");
 				free(full_path);
 				return -errno;
 			}

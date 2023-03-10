@@ -303,7 +303,7 @@ int watdfs_release(int *argTypes, void **args)
 	{
 		DLOG("server close fail");
 		free(full_path);
-		*ret = sys_ret;
+		*ret = -errno;
 		return 0;
 	}
 

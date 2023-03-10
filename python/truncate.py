@@ -1,11 +1,11 @@
 import os
 
 # Prompt the user to enter a file path
-file_path = "/tmp/j24su/mount/myfile4.txt"
+file_path = "/tmp/j24su/mount/myfile.txt"
 
 # Open the file for writing
 try:
-    file_descriptor = os.open(file_path, os.O_RDONLY)
+    file_descriptor = os.open(file_path, os.O_WRONLY)
     print("File descriptor for %s: %d" % (file_path, file_descriptor))
     open = input("open pending")
 
@@ -13,7 +13,7 @@ try:
     # os.write(file_descriptor, data)
     # write = input("write pending")
 
-    os.truncate(file_descriptor, 10)
+    os.truncate(file_path, 10)
     fsync = input("truncate pending")
 
     os.close(file_descriptor)

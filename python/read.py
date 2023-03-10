@@ -16,6 +16,9 @@ try:
     readbuf = os.read(file_descriptor, size)
     print(readbuf)
     
+    open = input("input number to execute read...")
+    readbuf = os.read(file_descriptor, size)
+    print(readbuf)
 
     open = input("input number to execute close...")
     os.close(file_descriptor)

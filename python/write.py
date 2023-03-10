@@ -9,8 +9,13 @@ try:
     file_descriptor = os.open(file_path, os.O_WRONLY)
     print("File descriptor for %s: %d" % (file_path, file_descriptor))
 
-    open = input("input number to execute write...")
-    data = raw_input("write:")
+    open = input("input number to execute write1...")
+    data = raw_input("write1:")
+    # data = 'This is some data to write to the file.'
+    os.write(file_descriptor, data)
+
+    open = input("input number to execute write2...")
+    data = raw_input("write2:")
     # data = 'This is some data to write to the file.'
     os.write(file_descriptor, data)
 

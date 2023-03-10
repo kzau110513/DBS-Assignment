@@ -1243,7 +1243,31 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 	}
 	size_t size = statbuf->st_size;
 
-	// step 1: create file
+	// step 1: read from server file
+	char *buf = (char *)malloc((size) * sizeof(char));
+	cpyfi->flags = O_RDONLY; // open with read only mode
+	// open file
+	int openRet = copy_open((void *)filesStatus, path, cpyfi);
+	if (openRet < 0)
+	{
+		DLOG("server file open fail");
+		delete statbuf;
+		delete cpyfi;
+		free(buf);
+		return openRet;
+	}
+
+	int lock_ret = watdfs_cli_lock(path, RW_READ_LOCK);
+	if (lock_ret < 0)
+	{
+		DLOG("read lock fail");
+		delete statbuf;
+		delete cpyfi;
+		return lock_ret;
+	}
+	DLOG("---------read lock here---------");
+
+	// step 2: create file
 	char *full_path = get_full_path(path, filesStatus);
 	DLOG("The new file full path on client: %s\n", full_path);
 	// create file and get the file handler
@@ -1259,7 +1283,7 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 
 	DLOG("The new file size on client: %ld\n", size);
 
-	// step 2: truncate file
+	// step 3: truncate file
 	int truncateRet = truncate(full_path, 0);
 	if (truncateRet < 0)
 	{
@@ -1269,32 +1293,6 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		free(full_path);
 		return -errno;
 	}
-
-	// step 3: read from server file
-	char *buf = (char *)malloc(((off_t)size) * sizeof(char));
-	cpyfi->flags = O_RDONLY; // open with read only mode
-	// open file
-	int openRet = copy_open((void *)filesStatus, path, cpyfi);
-	if (openRet < 0)
-	{
-		DLOG("server file open fail");
-		delete statbuf;
-		delete cpyfi;
-		free(buf);
-		free(full_path);
-		return openRet;
-	}
-
-	int lock_ret = watdfs_cli_lock(path, RW_READ_LOCK);
-	if (lock_ret < 0)
-	{
-		DLOG("read lock fail");
-		delete statbuf;
-		delete cpyfi;
-		free(full_path);
-		return lock_ret;
-	}
-	DLOG("---------read lock here---------");
 
 	// read file
 	int readRet = copy_read((void *)filesStatus, path, buf, size, 0, cpyfi);
@@ -1391,11 +1389,6 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	}
 	DLOG("---------write lock here---------");
 
-	// open file on the server
-	struct fuse_file_info *fi = new struct fuse_file_info;
-	fi->flags = O_RDWR;
-	fi->fh = filesStatus->openFilesStatus[path].serverDesc;
-
 	// get the size of local file
 	char *full_path = get_full_path(path, filesStatus);
 	struct stat *statbuf = new struct stat;
@@ -1405,11 +1398,10 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 		DLOG("local file stat fail");
 		fxn_ret = -errno;
 		delete statbuf;
-		delete fi;
 		free(full_path);
 		return fxn_ret;
 	}
-	size_t fileSize = statbuf->st_size;
+	size_t fileSize = (size_t)statbuf->st_size;
 	char *buf = (char *)malloc(fileSize * sizeof(char));
 	DLOG("the local file size is: %ld, buf before pread: %s", fileSize, buf);
 
@@ -1423,7 +1415,6 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 		DLOG("local file read fail");
 		fxn_ret = -errno;
 		delete statbuf;
-		delete fi;
 		free(full_path);
 		free(buf);
 		close(openRet);
@@ -1438,12 +1429,15 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 	{
 		DLOG("server file truncate fail");
 		delete statbuf;
-		delete fi;
 		free(full_path);
 		free(buf);
 		return fxn_ret;
 	}
 
+	// open file on the server
+	struct fuse_file_info *fi = new struct fuse_file_info;
+	fi->flags = O_WRONLY;
+	fi->fh = filesStatus->openFilesStatus[path].serverDesc;
 	// write back server
 	DLOG("the server file fi->fh before copy_write: %ld", fi->fh);
 	DLOG("path: %s, buf: %s, bufsize: %ld:", path, buf, fileSize);
@@ -1799,7 +1793,6 @@ int watdfs_cli_mknod(void *userdata, const char *path, mode_t mode, dev_t dev)
 						free(full_path);
 						return cpyret;
 					}
-					// fxn_ret = cli_write_back(path, filesStatus);
 					// update metadata
 					int statRet = stat(full_path, &clientStatbuf);
 					if (statRet < 0)
@@ -2154,7 +2147,7 @@ int watdfs_cli_read(void *userdata, const char *path, char *buf, size_t size,
 				{
 					DLOG("the download fail");
 					free(full_path);
-					return -EPERM;
+					return downloadRet;
 				}
 			}
 			fxn_ret = pread(filesStatus->openFilesStatus[path].clientDesc, buf, size, offset);

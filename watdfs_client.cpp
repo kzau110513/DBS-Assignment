@@ -1179,6 +1179,7 @@ int cli_freshness_check(const char *path, struct files_status *filesStatus)
 		// if T - tc >= t, check T_client == T_server
 		else
 		{
+			DLOG("the file not satisfy T - tc < t");
 			DLOG("checking T_client == T_server");
 			struct stat *statClient = new struct stat;
 			struct stat *statServer = new struct stat;
@@ -1633,147 +1634,267 @@ int watdfs_cli_getattr(void *userdata, const char *path, struct stat *statbuf)
 	int fxn_ret = 0;
 	int fileIsOpen = cli_file_is_open(path, filesStatus);
 
-	// the file has not yet opened
-	if (fileIsOpen < 0)
+	struct stat serverStatbuf;
+	int cpyStatRet = copy_getattr(filesStatus, path, &serverStatbuf);
+	// the server file not exist
+	if (cpyStatRet < 0)
 	{
-		DLOG("the file has not yet been opened");
-		int statRet = stat(full_path, statbuf);
-
-		// if the file is not cached
-		if (statRet < 0)
+		if (cpyStatRet == -ENOENT)
 		{
-			DLOG("the file is not cached, check the server file");
-			struct stat serverStatbuf;
-			int cpyStatRet = copy_getattr(filesStatus, path, &serverStatbuf);
-			// the server file not exist
-			if (cpyStatRet < 0)
+			DLOG("the server file not exist");
+			free(full_path);
+			return cpyStatRet;
+		}
+		else
+		{
+			DLOG("server getattr fail");
+			free(full_path);
+			return cpyStatRet;
+		}
+	}
+
+	// server file and client file exists
+
+	if (fileIsOpen == 0)
+	{
+		DLOG("IN watdfs_cli_getattr: client file is open");
+		// client file is open
+		int fileClientMode = filesStatus->openFilesStatus[path].clientMode & O_ACCMODE; // use O_ACCMODE to get the last two flag bits
+
+		if (fileClientMode == O_RDONLY)
+		{
+			DLOG("IN watdfs_cli_getattr: client file open in read only");
+			// file open in read only mode
+			int fresh_check = cli_freshness_check(path, filesStatus);
+
+			if (fresh_check == 0)
 			{
-				if (cpyStatRet == -ENOENT)
+				DLOG("IN watdfs_cli_getattr: client file is fresh, do local stat, update Tc");
+				// file is fresh, do local stat, update Tc
+				int statRet = stat(full_path, statbuf);
+				if (statRet < 0)
 				{
-					DLOG("the server file not exist");
-					free(full_path);
-					return cpyStatRet;
-				}
-				else
-				{
-					DLOG("server getattr fail");
-					free(full_path);
-					return cpyStatRet;
-				}
-			}
-			// the server file exist, begin download
-			else
-			{
-				if (-errno == -ENOENT)
-				{
-					DLOG("the file is not cached, downloading...");
-					// download the file, open with O_RDONLY flag
-					int download_ret = cli_downloadFile(path, filesStatus, callFlag);
-					// if download failed
-					if (download_ret < 0)
-					{
-						DLOG("download fail");
-						fxn_ret = download_ret;
-					}
-					// if download succeeded
-					else
-					{
-						DLOG("download succeed");
-						// do the stat call
-						int statRet = stat(full_path, statbuf);
-						if (statRet < 0)
-						{
-							DLOG("the local file stat fail");
-							fxn_ret = -errno;
-						}
-						// close the file
-						int closeRet = cli_close_file(path, filesStatus);
-						fxn_ret = closeRet;
-					}
-				}
-				else
-				{
-					DLOG("the stat call fail");
+					DLOG("the local file stat fail");
 					fxn_ret = -errno;
 				}
+				filesStatus->openFilesStatus[path].tc = time(0);
+				// return fxn_ret;
+			}
+			else
+			{
+				DLOG("IN watdfs_cli_getattr: client file is not fresh, download file, update file_meta, do local stat");
+				// download the file, open with O_RDONLY flag
+				int download_ret = cli_downloadFile(path, filesStatus, callFlag);
+				// if download failed
+				if (download_ret < 0)
+				{
+					DLOG("download fail");
+					fxn_ret = download_ret;
+				}
+				// if download succeeded
+				else
+				{
+					DLOG("download succeed");
+					// do the stat call
+					int statRet = stat(full_path, statbuf);
+					if (statRet < 0)
+					{
+						DLOG("the local file stat fail");
+						fxn_ret = -errno;
+					}
+					// close the file
+					int closeRet = cli_close_file(path, filesStatus);
+					fxn_ret = closeRet;
+				}
+				// return fxn_ret;
 			}
 		}
-		// the file has been cached
 		else
 		{
-			DLOG("the file is cached, check the freshness...");
-
-			// if freshness is expired...
-			int check = cli_freshness_check(path, filesStatus);
-			if (check < 0)
-			{
-				fxn_ret = cli_downloadFile(path, filesStatus, callFlag);
-				if (fxn_ret < 0)
-				{
-					DLOG("fail to fetch server file");
-					free(full_path);
-					return fxn_ret;
-				}
-
-				// close the file
-				int closeRet = cli_close_file(path, filesStatus);
-				fxn_ret = closeRet;
-			}
-			// do the stat call
+			DLOG("IN watdfs_cli_getattr: client file is open in read-write or write only mode, only do local stat");
+			// file is open in read-write or write only mode, only writer, do local stat
 			int statRet = stat(full_path, statbuf);
 			if (statRet < 0)
 			{
 				DLOG("the local file stat fail");
 				fxn_ret = -errno;
 			}
+			// return fxn_ret;
 		}
 	}
-	// the file has opened
 	else
 	{
-		DLOG("the file has been opened");
-		int fileClientMode = filesStatus->openFilesStatus[path].clientMode & O_ACCMODE; // use O_ACCMODE to get the last two flag bits
-		// if the client mode is writeonly or readwrite, no need to check
-		if (fileClientMode != O_RDONLY)
-		{
-			DLOG("the client mode is writeonly or readwrite");
-			int statRet = stat(full_path, statbuf);
-			if (statRet < 0)
-			{
-				DLOG("the local file stat fail");
-				fxn_ret = -errno;
-			}
-		}
-		// if the client mode is readonly, need to check the freshness
-		else
-		{
-			DLOG("the client mode is readonly");
-			// TODO: check freshness
+		DLOG("IN watdfs_cli_getattr: client file exist but is not open, open and copy file, do local stat, close file");
+		// file exist but is not open, open and copy file, do local stat, close file
 
-			// if freshness is expired...
-			int check = cli_freshness_check(path, filesStatus);
-			if (check < 0)
+		// if freshness is expired...
+		int check = cli_freshness_check(path, filesStatus);
+		if (check < 0)
+		{
+			fxn_ret = cli_downloadFile(path, filesStatus, callFlag);
+			if (fxn_ret < 0)
 			{
-				fxn_ret = cli_downloadFile(path, filesStatus, callFlag);
-				if (fxn_ret < 0)
-				{
-					DLOG("fail to fetch server file");
-					free(full_path);
-					return fxn_ret;
-				}
-				// close the file
-				// int closeRet = cli_close_file(path, filesStatus);
-				// fxn_ret = closeRet;
+				DLOG("fail to fetch server file");
+				free(full_path);
+				return fxn_ret;
 			}
-			// do the stat call
-			int statRet = stat(full_path, statbuf);
-			if (statRet < 0)
-			{
-				DLOG("the local file stat fail");
-				fxn_ret = -errno;
-			}
+
+			// close the file
+			int closeRet = cli_close_file(path, filesStatus);
+			fxn_ret = closeRet;
 		}
+		// do the stat call
+		int statRet = stat(full_path, statbuf);
+		if (statRet < 0)
+		{
+			DLOG("the local file stat fail");
+			fxn_ret = -errno;
+		}
+		// filesStatus->openFilesStatus[path].tc = time(NULL);
 	}
+
+	// // the file has not yet opened
+	// if (fileIsOpen < 0)
+	// {
+	// 	DLOG("the file has not yet been opened");
+	// 	int statRet = stat(full_path, statbuf);
+
+	// 	// if the file is not cached
+	// 	if (statRet < 0)
+	// 	{
+	// 		DLOG("the file is not cached, check the server file");
+	// 		struct stat serverStatbuf;
+	// 		int cpyStatRet = copy_getattr(filesStatus, path, &serverStatbuf);
+	// 		// the server file not exist
+	// 		if (cpyStatRet < 0)
+	// 		{
+	// 			if (cpyStatRet == -ENOENT)
+	// 			{
+	// 				DLOG("the server file not exist");
+	// 				free(full_path);
+	// 				return cpyStatRet;
+	// 			}
+	// 			else
+	// 			{
+	// 				DLOG("server getattr fail");
+	// 				free(full_path);
+	// 				return cpyStatRet;
+	// 			}
+	// 		}
+	// 		// the server file exist, begin download
+	// 		else
+	// 		{
+	// 			if (-errno == -ENOENT)
+	// 			{
+	// 				DLOG("the file is not cached, downloading...");
+	// 				// download the file, open with O_RDONLY flag
+	// 				int download_ret = cli_downloadFile(path, filesStatus, callFlag);
+	// 				// if download failed
+	// 				if (download_ret < 0)
+	// 				{
+	// 					DLOG("download fail");
+	// 					fxn_ret = download_ret;
+	// 				}
+	// 				// if download succeeded
+	// 				else
+	// 				{
+	// 					DLOG("download succeed");
+	// 					// do the stat call
+	// 					int statRet = stat(full_path, statbuf);
+	// 					if (statRet < 0)
+	// 					{
+	// 						DLOG("the local file stat fail");
+	// 						fxn_ret = -errno;
+	// 					}
+	// 					// close the file
+	// 					int closeRet = cli_close_file(path, filesStatus);
+	// 					fxn_ret = closeRet;
+	// 				}
+	// 			}
+	// 			else
+	// 			{
+	// 				DLOG("the stat call fail");
+	// 				fxn_ret = -errno;
+	// 			}
+	// 		}
+	// 	}
+	// 	// the file has been cached
+	// 	else
+	// 	{
+	// 		DLOG("the file is cached, check the freshness...");
+
+	// 		// if freshness is expired...
+	// 		int check = cli_freshness_check(path, filesStatus);
+	// 		if (check < 0)
+	// 		{
+	// 			fxn_ret = cli_downloadFile(path, filesStatus, callFlag);
+	// 			if (fxn_ret < 0)
+	// 			{
+	// 				DLOG("fail to fetch server file");
+	// 				free(full_path);
+	// 				return fxn_ret;
+	// 			}
+
+	// 			// close the file
+	// 			int closeRet = cli_close_file(path, filesStatus);
+	// 			fxn_ret = closeRet;
+	// 		}
+	// 		// do the stat call
+	// 		int statRet = stat(full_path, statbuf);
+	// 		if (statRet < 0)
+	// 		{
+	// 			DLOG("the local file stat fail");
+	// 			fxn_ret = -errno;
+	// 		}
+	// 		filesStatus->openFilesStatus[path].tc = time(NULL);
+	// 	}
+	// }
+	// // the file has opened
+	// else
+	// {
+	// 	DLOG("the file has been opened");
+	// 	int fileClientMode = filesStatus->openFilesStatus[path].clientMode & O_ACCMODE; // use O_ACCMODE to get the last two flag bits
+	// 	// if the client mode is writeonly or readwrite, no need to check
+	// 	if (fileClientMode != O_RDONLY)
+	// 	{
+	// 		DLOG("the client mode is writeonly or readwrite");
+	// 		int statRet = stat(full_path, statbuf);
+	// 		if (statRet < 0)
+	// 		{
+	// 			DLOG("the local file stat fail");
+	// 			fxn_ret = -errno;
+	// 		}
+	// 	}
+	// 	// if the client mode is readonly, need to check the freshness
+	// 	else
+	// 	{
+	// 		DLOG("the client mode is readonly");
+	// 		// TODO: check freshness
+
+	// 		// if freshness is expired...
+	// 		int check = cli_freshness_check(path, filesStatus);
+	// 		if (check < 0)
+	// 		{
+	// 			fxn_ret = cli_downloadFile(path, filesStatus, callFlag);
+	// 			if (fxn_ret < 0)
+	// 			{
+	// 				DLOG("fail to fetch server file");
+	// 				free(full_path);
+	// 				return fxn_ret;
+	// 			}
+	// 			// close the file
+	// 			// int closeRet = cli_close_file(path, filesStatus);
+	// 			// fxn_ret = closeRet;
+	// 		}
+	// 		// do the stat call
+	// 		int statRet = stat(full_path, statbuf);
+	// 		if (statRet < 0)
+	// 		{
+	// 			DLOG("the local file stat fail");
+	// 			fxn_ret = -errno;
+	// 		}
+	// 	}
+	// }
 
 	if (fxn_ret < 0)
 	{

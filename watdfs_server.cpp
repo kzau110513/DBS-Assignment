@@ -248,8 +248,17 @@ int watdfs_open(int *argTypes, void **args)
 		return 0;
 	}
 	fi->fh = openRet;
-	DLOG("file fh is %ld", fi->fh);
+	if (openReqFlag != O_RDONLY)
+	{
+		DLOG("openReqFlag is write flag");
+	}
+	else
+	{
+		DLOG("openReqFlag is read flag");
+	}
+	DLOG("after open the file open number: %d", openFilesStatus_s[short_path].openNum);
 	
+	DLOG("file fh is %ld", fi->fh);
 
 	// Clean up the full path, it was allocated on the heap.
 	free(full_path);
@@ -279,6 +288,14 @@ int watdfs_release(int *argTypes, void **args)
 	*ret = 0;
 
 	int openReqFlag = fi->flags & O_ACCMODE;
+	if (openReqFlag != O_RDONLY)
+	{
+		DLOG("openReqFlag is write flag");
+	}
+	else
+	{
+		DLOG("openReqFlag is read flag");
+	}
 
 	DLOG("fi->fh is %ld", fi->fh);
 	int sys_ret = close(fi->fh);
@@ -290,7 +307,7 @@ int watdfs_release(int *argTypes, void **args)
 		return 0;
 	}
 
-	DLOG("before close open number: %d", openFilesStatus_s[short_path].openNum);
+	DLOG("before close the file open number: %d", openFilesStatus_s[short_path].openNum);
 
 	if (openFilesStatus_s.find(short_path) == openFilesStatus_s.end())
 	{
@@ -302,10 +319,11 @@ int watdfs_release(int *argTypes, void **args)
 	else
 	{
 		openFilesStatus_s[short_path].openNum -= 1;
-		DLOG("after close open number: %d", openFilesStatus_s[short_path].openNum);
+		DLOG("after close the file open number: %d", openFilesStatus_s[short_path].openNum);
 		// if the close belongs to writer, update to read mode
 		if (openReqFlag != O_RDONLY)
 		{
+			DLOG("the writer close");
 			openFilesStatus_s[short_path].serverMode = 0;
 		}
 	}

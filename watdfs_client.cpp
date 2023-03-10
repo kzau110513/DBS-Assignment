@@ -1409,7 +1409,7 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 		free(full_path);
 		return fxn_ret;
 	}
-	off_t fileSize = statbuf->st_size;
+	size_t fileSize = statbuf->st_size;
 	char *buf = (char *)malloc(fileSize * sizeof(char));
 	DLOG("the local file size is: %ld, buf before pread: %s", fileSize, buf);
 

@@ -1,7 +1,7 @@
 import os
 
 # Prompt the user to enter a file path
-file_path = "/tmp/j24su/mount/myfile4.txt"
+file_path = "/tmp/j24su/mount/myfile.txt"
 
 # Open the file for writing
 try:

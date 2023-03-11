@@ -63,8 +63,8 @@ All functions with `copy_` prefix are the copy functions from A2.
      - Freshness interval *t* is stored on client as *cacheInterval* in userdata.
      - Each file opened on client will create a file record stored in *file_meta* struct (The record contains the *Tc* of the file). And each record will be stored in *openFilesStatus* map.
      - *T_client* and *T_server* are determined by the metadata *st_mtime* of the file on client and server.
-     - For read calls, if the file is opened in read mode, check the freshness of file. First check if `T - Tc < t`. If so, we can return directly. Otherwise, get *T_client* and *T_server* through local stat call and rpc getattr call. If `T_client == T_server`, update Tc to current time and return. If two conditions are both not satisfied, download the file, and update Tc to the current time.
-     - For write calls, check freshness at the end of functions. First we check if `T - Tc < t`. If so, return directly. Otherwise, get *T_client* and *T_server* through local stat call and rpc getattr call. If `T_client == T_server`, update Tc to current time and return. If two conditions are both not satisfied, upload the file, and update Tc to the current time.
+     - For read calls, if the file is opened in read mode, check the freshness of file. First check if `T - Tc < t`. If so, we can return directly. Otherwise, get *T_client* and *T_server* through local stat call and rpc getattr call. If `T_client == T_server`, update Tc to current time and return. If neither of these conditions is satisfied, download the file, and update Tc to the current time.
+     - For write calls, check freshness at the end of function. First we check if `T - Tc < t`. If so, return directly. Otherwise, get *T_client* and *T_server* through local stat call and rpc getattr call. If `T_client == T_server`, update Tc to current time and return. If neither of these conditions is satisfied, upload the file, and update Tc to the current time.
     
    - Atomic Transfer
      - We use two rpc calls `watdfs_lock` and `watdfs_unlock` registered in server side to lock and unlock the file.

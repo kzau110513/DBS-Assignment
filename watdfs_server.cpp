@@ -24,12 +24,12 @@ INIT_LOG
 
 struct file_status_s
 {
-	int serverMode; // 0 for read, 1 for write
-	int openNum;
-	rw_lock_t *lock;
+	int serverMode;	 // 0 for read, 1 for write
+	int openNum;	 // the current numbers of clients opening the file
+	rw_lock_t *lock; // the file lock
 };
 
-std::map<std::string, struct file_status_s> openFilesStatus_s;
+std::map<std::string, struct file_status_s> openFilesStatus_s; // maintain all opened file status on server
 
 // Global state server_persist_dir.
 char *server_persist_dir = nullptr;
@@ -257,7 +257,7 @@ int watdfs_open(int *argTypes, void **args)
 		DLOG("openReqFlag is read flag");
 	}
 	DLOG("after open the file open number: %d", openFilesStatus_s[short_path].openNum);
-	
+
 	DLOG("file fh is %ld", fi->fh);
 
 	// Clean up the full path, it was allocated on the heap.

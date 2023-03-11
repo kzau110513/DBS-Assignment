@@ -15,17 +15,17 @@ INIT_LOG
 
 struct file_meta
 {
-	u_int64_t clientDesc;
-	int clientMode;
-	time_t tc;
-	u_int64_t serverDesc;
+	u_int64_t clientDesc; // the file descriptor of client file
+	int clientMode;		  // the open flag of client file, set in watdfs_cli_open
+	time_t tc;			  // the Tc of the client file
+	u_int64_t serverDesc; // the file descriptor of server file
 };
 
 struct files_status
 {
-	time_t cacheInterval;
-	char *pathToCache;
-	std::map<std::string, struct file_meta> openFilesStatus;
+	time_t cacheInterval;									 // the cache interval
+	char *pathToCache;										 // the path of cache folder
+	std::map<std::string, struct file_meta> openFilesStatus; // maintain all opened file status on client
 };
 
 //--------------------the old copy implementation of wat_cli functions in A2-------------------
@@ -959,13 +959,6 @@ int copy_utimensat(void *userdata, const char *path,
 //
 //
 //
-//
-//
-//
-//
-//
-//
-//
 //------------------------lock functions---------------------
 int watdfs_cli_lock(const char *path, rw_lock_mode_t mode)
 {
@@ -1074,6 +1067,12 @@ int watdfs_cli_unlock(const char *path, rw_lock_mode_t mode)
 	// Finally return the value we got from the server.
 	return fxn_ret;
 }
+//
+//
+//
+//
+//
+//
 //
 //
 //
@@ -1214,6 +1213,7 @@ int cli_freshness_check(const char *path, struct files_status *filesStatus)
 			{
 				DLOG("the file satisfy T_client == T_server");
 			}
+			filesStatus->openFilesStatus[path].tc = time(0);
 
 			free(full_path);
 			free(statClient);
@@ -1243,7 +1243,7 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 	}
 	size_t size = statbuf->st_size;
 
-	// step 1: read from server file
+	// step 1: open and lock
 	char *buf = (char *)malloc((size) * sizeof(char));
 	cpyfi->flags = O_RDONLY; // open with read only mode
 	// open file
@@ -1267,7 +1267,7 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 	}
 	DLOG("---------read lock here---------");
 
-	// step 2: create file
+	// step 2: create file on client
 	char *full_path = get_full_path(path, filesStatus);
 	DLOG("The new file full path on client: %s\n", full_path);
 	// create file and get the file handler
@@ -1338,6 +1338,9 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		return -errno;
 	}
 
+	// insert newFile to openFilesStatus
+	filesStatus->openFilesStatus[path] = newFile;
+
 	int unlock_ret = watdfs_cli_unlock(path, RW_READ_LOCK);
 	if (unlock_ret < 0)
 	{
@@ -1361,9 +1364,6 @@ int cli_downloadFile(const char *path, struct files_status *filesStatus, int ori
 		free(full_path);
 		return releaseRet;
 	}
-
-	// insert newFile to openFilesStatus
-	filesStatus->openFilesStatus[path] = newFile;
 
 	DLOG("cli_downloadFile succeed");
 	delete statbuf;
@@ -1434,7 +1434,7 @@ int cli_write_back(const char *path, struct files_status *filesStatus)
 		return fxn_ret;
 	}
 
-	// open file on the server
+	// get file_desciptor on the server
 	struct fuse_file_info *fi = new struct fuse_file_info;
 	fi->flags = O_WRONLY;
 	fi->fh = filesStatus->openFilesStatus[path].serverDesc;

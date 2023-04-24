@@ -1,6 +1,4 @@
 # System Manual
-By Jiayao Su, Student ID: 21044672, Wat ID: j24su.
-All functions with `copy_` prefix are the copy functions from A2.
 
 1. Gloabal Data Structure
    - client:
